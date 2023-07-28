@@ -23,7 +23,7 @@ path = "src/bin/relay.rs"
 bincode = "1.3.3"
 clap = { version = "4.1.4", features = ["derive"] }
 crossbeam = "0.8.2"
-dsys = { version = "0.1.0", path = "../.." }
+dsys = { version = "0.1.0", path = "../neo100-base" }
 rand = "0.8.5"
 secp256k1 = "0.26.0"
 serde = { version = "1.0.152", features = ["derive"] }
