@@ -1,0 +1,43 @@
+[task]
+mode = "ur"
+num-client = 1
+num-worker = 0
+
+[multicast]
+ip = "127.0.0.255"
+variant = "halfsiphash"
+
+[[replica]]
+control-host = "127.0.0.1"
+control-user = "cowsay"
+ip = "127.0.0.1"
+link = "aa:aa:aa:00:00:01"
+dev-port = 0
+
+[[replica]]
+control-host = "127.0.0.2"
+control-user = "cowsay"
+ip = "127.0.0.2"
+link = "aa:aa:aa:00:00:02"
+dev-port = 4
+
+[[replica]]
+control-host = "127.0.0.3"
+control-user = "cowsay"
+ip = "127.0.0.3"
+link = "aa:aa:aa:00:00:03"
+dev-port = 8
+
+[[replica]]
+control-host = "127.0.0.4"
+control-user = "cowsay"
+ip = "127.0.0.4"
+link = "aa:aa:aa:00:00:04"
+dev-port = 12
+
+[[client]]
+control-host = "127.0.0.101"
+control-user = "cowsay"
+ip = "127.0.0.101"
+link = "bb:bb:bb:00:00:01"
+dev-port = 32
