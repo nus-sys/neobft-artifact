@@ -1,0 +1,25 @@
+Developed with stable Rust 1.63.0, Tofino SDE 9.9.1, on Ubuntu 20.04.
+
+## Run sanity check:
+
+$ cargo test --lib
+
+## Run benchmark:
+
+Copy `spec.example.toml` to `spec.toml`, and modify `[[replica]]`, `[[client]]`` 
+and `[multicast]` sections according to the evaluation system, and modify 
+`[task]` as the desired evaluation run.
+
+Then:
+```
+$ cargo run --bin spec_sw
+```
+and transfer `src-sw` to switch.
+
+On switch compile, install and run data plane program. Configure the program 
+using the script with same name, through `$SDE/run_bfshell.sh -b <script>`.
+
+Back to project directory:
+```
+$ cargo run --bin spec
+```

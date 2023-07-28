@@ -1,0 +1,21 @@
+maximum batch size = 10
+
+Protocol                Latency         Throughput  C       W
+unreplicated            23.665us        365860      40      4
+neo-halfsiphash-trusted 32.262us        290639      120     4
+neo-secp256k1-trusted   115.046us       243616      100     4
+neo-halfsiphash-voting  217.732us       207136      1000    4
+zyzzyva                 371.446us       153365      200     15  extra worker for signing replies
+pbft                    622.414us       112428      200     4
+hotstuff                2522.404us      186579      1000    4   no batch limit (up to 240)
+zyzzyva-slow            529.999us       89419       200     15
+
+Protocol                                Tput @ 5ms  C       Reach Max Tput
+unreplicated                            251288      40
+neo-halfsiphash-trusted                 185232      80
+neo-secp256k1-trusted                   169644      40
+neo-halfsiphash-voting                  127446      700     no
+zyzzyva                                 105162      100
+pbft                                    102451      300
+hotstuff                                66834       500     no
+zyzzyva-slow                            71961       100

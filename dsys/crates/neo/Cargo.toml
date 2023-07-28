@@ -1,0 +1,31 @@
+[package]
+name = "neo"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "neo-client"
+path = "src/bin/client.rs"
+
+[[bin]]
+name = "neo-replica"
+path = "src/bin/replica.rs"
+
+[[bin]]
+name = "neo-seq"
+path = "src/bin/seq.rs"
+
+[[bin]]
+name = "neo-relay"
+path = "src/bin/relay.rs"
+
+[dependencies]
+bincode = "1.3.3"
+clap = { version = "4.1.4", features = ["derive"] }
+crossbeam = "0.8.2"
+dsys = { version = "0.1.0", path = "../.." }
+rand = "0.8.5"
+secp256k1 = "0.26.0"
+serde = { version = "1.0.152", features = ["derive"] }
+sha2 = "0.10.6"
+siphasher = "0.3.10"
