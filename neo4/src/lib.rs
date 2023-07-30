@@ -135,10 +135,10 @@ pub mod bin {
         pub control_user: String,
         pub control_host: String,
         pub ip: Ipv4Addr,
-        pub link: String,
-        #[serde(default)]
-        pub link_speed: String,
-        pub dev_port: u8,
+        // pub link: String,
+        // #[serde(default)]
+        // pub link_speed: String,
+        // pub dev_port: u8,
     }
 
     #[derive(Debug, Clone, Deserialize)]

@@ -18,9 +18,9 @@ use neoart::{
         Config, OpNumber, ARGS_SERVER_PORT, MULTICAST_ACCEL_PORT, MULTICAST_CONTROL_RESET_PORT,
         MULTICAST_PORT,
     },
-    neo, pbft,
+    minbft, neo, pbft,
     transport::{MulticastListener, Node, Run, Socket, Transport},
-    unreplicated, ycsb, zyzzyva, App, Client, minbft,
+    unreplicated, ycsb, zyzzyva, App, Client,
 };
 use nix::{
     sched::{sched_setaffinity, CpuSet},
@@ -285,14 +285,19 @@ async fn run_clients<T>(
     };
 
     // let mut accumulated_latencies = Vec::new();
-    for _ in 0..20 {
+    let mut throughputs = Vec::new();
+    for i in 0..20 {
         sleep(Duration::from_secs(1)).await;
         // let latencies = take(&mut *latencies.lock().await);
         // println!("* interval throughput {} ops/sec", latencies.len());
-        println!(
-            "* interval throughput {} ops/sec",
-            throughput.swap(0, SeqCst)
-        );
+        // println!(
+        //     "* interval throughput {} ops/sec",
+        //     throughput.swap(0, SeqCst)
+        // );
+        let t = throughput.swap(0, SeqCst);
+        if i >= 10 {
+            throughputs.push(t);
+        }
         // accumulated_latencies.extend(latencies);
     }
     notify.notify_waiters();
@@ -304,7 +309,8 @@ async fn run_clients<T>(
     accumulated_latencies.sort_unstable();
     if !accumulated_latencies.is_empty() {
         println!(
-            "* 50th {:?} 99th {:?}",
+            "* Throughput {} op/sec 50th {:?} 99th {:?}",
+            throughputs.iter().sum::<u32>() / throughputs.len() as u32,
             accumulated_latencies[accumulated_latencies.len() / 2],
             accumulated_latencies[accumulated_latencies.len() / 100 * 99]
         );

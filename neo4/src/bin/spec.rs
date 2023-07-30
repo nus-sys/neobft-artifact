@@ -37,14 +37,14 @@ async fn main() {
     };
     spec.task.batch_size = usize::min(spec.task.batch_size, spec.task.num_client as _);
 
-    let rebuild = Command::new("cargo")
-        .args(["build", "--release", "--bin", "matrix"])
-        .spawn()
-        .unwrap()
-        .wait()
-        .await
-        .unwrap();
-    assert!(rebuild.success());
+    // let rebuild = Command::new("cargo")
+    //     .args(["build", "--release", "--bin", "matrix"])
+    //     .spawn()
+    //     .unwrap()
+    //     .wait()
+    //     .await
+    //     .unwrap();
+    // assert!(rebuild.success());
 
     let mut instance_channel = mpsc::channel(1024);
     let replica_tasks = spec
@@ -120,9 +120,9 @@ async fn main() {
 
 async fn up_node(node: &Node, tag: String) -> JoinHandle<()> {
     let rsync = Command::new("rsync")
-        .arg("target/release/matrix")
+        .arg("artifact/neo4")
         .arg(format!(
-            "{}@{}:neo-matrix",
+            "{}@{}:neo4",
             node.control_user, node.control_host
         ))
         .stdout(Stdio::piped())
@@ -138,7 +138,7 @@ async fn up_node(node: &Node, tag: String) -> JoinHandle<()> {
 
     let mut matrix = Command::new("ssh")
         .arg(format!("{}@{}", node.control_user, node.control_host))
-        .arg(format!("./neo-matrix {}", node.control_host))
+        .arg(format!("./neo4 {}", node.control_host))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -181,7 +181,7 @@ async fn up_node(node: &Node, tag: String) -> JoinHandle<()> {
 async fn down_node(user: &str, host: &str, _inst_id: &str) {
     Command::new("ssh")
         .arg(format!("{user}@{host}"))
-        .arg(String::from("pkill -INT matrix"))
+        .arg(String::from("pkill --exact -INT neo4"))
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
