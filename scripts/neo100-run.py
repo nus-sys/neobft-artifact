@@ -12,25 +12,25 @@ async def remote_sync(address, args):
     await p.wait()
     return p.returncode
 
-async def setup_relay(address, multicast_address):
-    code = await remote_sync(address, ['sudo', 'apt-get', 'install', '--yes', 'socat'])
-    assert code == 0
-    code = await remote_sync(
-        address, [
-            'tmux', 'new-session', '-d', '-s', 'neo'
-            'socat', 'udp4-recv:5001,ip-add-membership=239.255.1.1:ens5', f'udp4:{multicast_address}:5000'])
-    assert code == 0
+# async def setup_relay(address, multicast_address):
+#     code = await remote_sync(address, ['sudo', 'apt-get', 'install', '--yes', 'socat'])
+#     assert code == 0
+#     code = await remote_sync(
+#         address, [
+#             'tmux', 'new-session', '-d', '-s', 'neo'
+#             'socat', 'udp4-recv:5001,ip-add-membership=239.255.1.1:ens5', f'udp4:{multicast_address}:5000'])
+#     assert code == 0
 
-async def prepare_relay():
-    i = 1
-    tasks = []
-    with open('address.txt') as addresses:
-        for line in addresses:
-            [role, public_address, _] = line.split()
-            if role == 'relay':
-                tasks.append(setup_relay(public_address, f'239.255.2.{i}'))
-                i += 1
-    await gather(*tasks)
+# async def prepare_relay():
+#     i = 1
+#     tasks = []
+#     with open('address.txt') as addresses:
+#         for line in addresses:
+#             [role, public_address, _] = line.split()
+#             if role == 'relay':
+#                 tasks.append(setup_relay(public_address, f'239.255.2.{i}'))
+#                 i += 1
+#     await gather(*tasks)
 
 
 async def evaluate(f, client_count, crypto):
@@ -63,7 +63,7 @@ async def evaluate(f, client_count, crypto):
     await remote_sync(
         seq_address[0], [
             'tmux', 'new-session', '-d', '-s', 'neo', 
-            './neo-seq', 
+            './neo100-seq', 
                 # '--multicast', '239.255.1.1', 
                 '--multicast', relay_addresses[0][1], 
                 # not `replica_count` here
@@ -76,13 +76,13 @@ async def evaluate(f, client_count, crypto):
     await remote_sync(
         relay_addresses[0][0], [
             'tmux', 'new-session', '-d', '-s', 'neo', 
-            './neo-relay', *[address[1] for address in relay_addresses[1:5]]])
+            './neo100-relay', *[address[1] for address in relay_addresses[1:5]]])
     # layer 2: relay[0] -> relay[1..5] -> relay[5..21]
     await gather(*[
         remote_sync(
             relay_address[0], [
                 'tmux', 'new-session', '-d', '-s', 'neo',
-                './neo-relay', *[address[1] for address in relay_addresses[5 + 4 * i : 5 + 4 * (i + 1)]]])
+                './neo100-relay', *[address[1] for address in relay_addresses[5 + 4 * i : 5 + 4 * (i + 1)]]])
         for i, relay_address in enumerate(relay_addresses[1:5])
     ])
     # layer 3: relay[1..5] -> relay[5..21] -> replicas
@@ -93,7 +93,7 @@ async def evaluate(f, client_count, crypto):
                 replica_addresses[replica_count * i // relay_count : replica_count * (i + 1) // relay_count]]
         await remote_sync(
             address, [
-                'tmux', 'new-session', '-d', '-s', 'neo', './neo-relay', *send_addresses])
+                'tmux', 'new-session', '-d', '-s', 'neo', './neo100-relay', *send_addresses])
     await gather(*[launch(i, address[0]) for i, address in enumerate(relay_addresses[5:])])
 
     # print('pending multicast group ready', file=stderr)
@@ -103,7 +103,7 @@ async def evaluate(f, client_count, crypto):
     await gather(*[remote_sync(
         replica_address[0], [
             'tmux', 'new-session', '-d', '-s', 'neo', 
-            './neo-replica', 
+            './neo100-replica', 
                 '--id', str(i), 
                 '--multicast', '239.255.1.1',  # not used, just placeholder 
                 '-f', str(f), 
@@ -116,7 +116,7 @@ async def evaluate(f, client_count, crypto):
     clients = [
         await remote(
             client_address[0], [
-                './neo-client', '--seq-ip', seq_address[1], '-f', str(f)], 
+                './neo100-client', '--seq-ip', seq_address[1], '-f', str(f)], 
             stdout=PIPE, stderr=PIPE)
             # stdout=PIPE)
         for client_address in client_addresses]
@@ -124,8 +124,8 @@ async def evaluate(f, client_count, crypto):
     print('wait clients', end='', flush=True, file=stderr)
     for client in clients:
         await client.wait()
-        print('.', end='', flush=True)
-    print()
+        print('.', end='', flush=True, file=stderr)
+    print(file=stderr)
 
     # capture output before interrupt?
     print('interrupt sequencer, relays and replicas', file=stderr)
@@ -145,10 +145,10 @@ async def evaluate(f, client_count, crypto):
         [client_count, latency] = out.decode().splitlines()
         count += int(client_count)
         if output_lantecy:
-            print(latency)
+            # print(latency)
             output_lantecy = False
     if count is not None:
-        print(count / 10)
+        print('Throughput', count / 10, 'op/sec', latency.strip())
 
     print('clean up', file=stderr)
     await gather(*[
@@ -160,7 +160,7 @@ if __name__ == '__main__':
     from sys import argv
     from asyncio import run
     if argv[1:2] == ['test']:
-        run(evaluate(0, 100, argv[2]))
+        run(evaluate(0, 1, argv[2]))
     else:
         # client_count = 90
         # for replica_count in range(1, 34, 4):
@@ -171,9 +171,10 @@ if __name__ == '__main__':
 
         client_count = 90
         for replica_count in range(1, 34, 4):
+            print(f'* Evaluate Crypto {argv[1]} #Replica {replica_count * 3 + 1}')
             step = 10
             for _ in range(10):
-                print(replica_count, client_count)
+                print(replica_count, client_count, file=stderr)
                 retry = run(evaluate(replica_count, client_count, argv[1])) is None
                 if retry:
                     client_count -= step
@@ -181,3 +182,4 @@ if __name__ == '__main__':
                 else:
                     step = max(step // 2, 1)
                     client_count += step
+                    client_count = min(client_count, 100)

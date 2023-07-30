@@ -1,0 +1,10 @@
+%{ for public-ip, ip in clients ~}
+client		${public-ip}	${ip}
+%{ endfor ~}
+%{ for public-ip, ip in replicas ~}
+replica		${public-ip}	${ip}
+%{ endfor ~}
+%{ for public-ip, ip in relays ~}
+relay		${public-ip}	${ip}
+%{ endfor ~}
+seq			${seq-public-ip}	${seq-ip}
