@@ -1,0 +1,10 @@
+[task]
+mode = "pbft"
+num-client = 1
+num-worker = 0
+app = "ycsb"
+f = 1
+assume-byz = false
+batch-size = 1
+
+# more presets work in progress
