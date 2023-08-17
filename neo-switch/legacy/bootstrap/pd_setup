@@ -1,0 +1,89 @@
+# Step 1: map lossless traffic to a ppg handle
+# Optional: reduce app pool for others
+tm.set_app_pool_size(1, 0) # 0x3C00
+tm.set_app_pool_size(2, 0) # 0x3C00
+tm.set_app_pool_size(3, 0) # 0x3C00
+
+# allocate PPG for dev-port 60 (loopback port) || or dev-port 68 recirculation port
+# - dev port
+tm.allocate_ppg(0x40) 
+
+# allocate PPG guaranteed min limit
+# - ppg
+# - cells
+tm.set_ppg_guaranteed_min_limit(4194304, 0xb400) # 4194304 is the PPG group
+
+# configure ppol for the PPG
+# - ppg
+# - app pool
+# - base limit
+# - baf
+# - hysteresis
+tm.set_ppg_app_pool_usage(4194304, 1, 0xb400, 9, 32)
+
+# configure pool size
+# - app pool
+# - cells
+tm.set_app_pool_size(1, 0xb400)
+
+# Step 2: map traffic to an icos
+# map traffic to an icos
+# - ppg
+# - icos bitmap
+tm.set_ppg_icos_mapping(4194304, 0x40)
+
+# Step 3: declare buffer and setup pause/pfc generation
+# - ppg
+# - cells
+tm.set_ppg_skid_limit(4194304)
+
+# Step 4: apply buffering
+# set guaranteed quantityy of buffers
+# - dev port
+# - queue
+# - cells
+tm.set_q_guaranteed_min_limit(0x40, 0, 250)
+
+# - port
+# - queue
+# - pool (EG pools)
+# - base limit
+# - baf
+tm.set_q_app_pool_usage(0x40, 0, 4, 100, 9, 32)
+
+# set EG pool size
+tm.set_app_pool_size(5, 0xb400)
+
+
+# Step 5: allocate queues
+
+# Step 6: apply weighting if needed
+
+
+
+# change queue priority for dev_port 68 q 7 to 7 (highest)
+# change q limit for EG port 
+
+# EXAMPLE
+# Configuring deep buffer in one direction
+# Step 1: Reduce buffer allocation to the app pools
+# - App pools 1-3 are not being used. So set them to zero
+# - App pool 4 is being used by switchd as default for all ports. Need some small buffer for ACKs to go back
+# - App pool 0 is the default pool. It is used when app pool usage is disabled on a queue.
+# Therefore give maximum possible cells to app pool 0.
+tm.set_app_pool_size(1, 0)
+tm.set_app_pool_size(2, 0)
+tm.set_app_pool_size(3, 0)
+tm.set_app_pool_size(4, 20)
+tm.set_app_pool_size(0, 266240)
+
+
+# Step 2: Disable app pool usage on the queue requiring deep buffer
+tm.disable_q_app_pool_usage(129, 0) # 129 is the dev port
+# Step 3: Set the queue's guaranteed min limit
+# - This limit somehow cannot be set equal to the app pool 0 size.
+# - In most cases, it goes up to 80% of app pool 0. But sometimes, other limits
+# play some role. Always test with tm.get_q_usage and UDP traffic to see how
+# much the queue actually fills up at max.
+tm.set_q_guaranteed_min_limit(129, 0, 196600) # 15.7 MB
+

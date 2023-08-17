@@ -1,10 +1,6 @@
 This is the instruction of evaluating benchmark results of NeoBFT.
 
 **Prepare the hardware.**
-The following setup can be used to evaluate all results except the one from 
-scalability benchmark.
-For that refer to [the AWS instruction](./README-aws.md).
-
 Connect 5 servers and 1 Xilinx AU50 FPGA to a Tofino switch.
 4 of the servers should be connected into physical ports 9, 10, 41 and 42 and
 running replicas, and the last server should be connected into physical port 44
@@ -12,8 +8,11 @@ and running clients.
 The FPGA should be connected to the physical port 46.
 
 Servers should run Ubuntu 20.04 LTS.
-Switch should install Tofino SDE 9.7.0.
+Switch should install Tofino SDE 9.7.0 and the ICA tools helper scripts.
 The FPGA host machine should install XXX.
+
+Refer to [the AWS instruction](./README-aws.md) to set up scalable benchmark's 
+hardware.
 
 **Prepare control machine.**
 A control machine is used to build the artifacts and orchestrate the 
@@ -26,12 +25,8 @@ The control machine should also run Ubuntu 20.04 LTS.
 Install Rust toolchain according to instructions on [rustup.rs](https://rustup.rs/).
 
 **Prepare the switch.**
-XXX (Modify code to match MAC addresses, dev ports, NIC spec, etc.)
-
-```
-$ bash compile_hmac.sh
-$ bash compile_pkey.sh
-```
+Copy the `neo-switch` directory to switch, then follow the README in it on the 
+switch (the *Evaluating NeoBFT* section).
 
 **Prepare the FPGA.**
 XXX
@@ -48,8 +43,8 @@ The `ip` should match the IPs assigned to the NICs that connected to the switch.
 $ ./build.sh
 ```
 
-**Produce results of in-network micro-benchmarks.**
-XXX
+**Produce results of in-network micro-benchmarks (figure 4, 5 and 6).**
+Follow the *Microbenchmarks* section of `neo-switch/README.md` on the switch.
 
 **Produce results of performance benchmarks (figure 7, 9 and 10).**
 Modify the `task` section of `spec.toml`, then
@@ -116,3 +111,6 @@ Repeat with all desired configuration of `task` section.
 Note: set network primitive variant for NeoBFT.
 In `multicast` section, set `variant = "halfsiphash"` for HMAC variant, and set
 `variant = "p256"` for public key variant.
+
+**Produce results of the scalable benchmark (figure 8).**
+Follow the *Perform Evaluation* section of `README-aws.md`.

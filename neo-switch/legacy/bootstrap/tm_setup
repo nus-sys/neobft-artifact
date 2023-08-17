@@ -1,0 +1,13 @@
+tm.set_app_pool_size(1, 0x7800)
+tm.set_app_pool_size(2, 0)
+tm.set_app_pool_size(3, 0)
+tm.set_app_pool_size(5, 0x3c00)
+
+tm.allocate_ppg(60)
+tm.set_ppg_guaranteed_min_limit(3932160, 0x3600)
+tm.set_ppg_app_pool_usage(3932160, 1, 0x6240, 9, 32)
+tm.set_ppg_icos_mapping(3932160, 0x40)
+tm.set_ppg_skid_limit(3932160, 0xFFF)
+
+tm.set_q_guaranteed_min_limit(60, 0, 0x1c00)
+tm.set_q_app_pool_usage(60, 0, 5, 0x3000, 9, 32)

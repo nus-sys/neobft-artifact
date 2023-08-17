@@ -1,0 +1,9 @@
+ucli
+pm
+port-del 33/-
+port-add 33/- 100G NONE
+port-loopback 33/- serdes-near
+port-enb 33/-
+exit
+exit
+exit

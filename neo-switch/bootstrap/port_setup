@@ -1,0 +1,59 @@
+ucli
+pm
+port-add 9/- 100G NONE
+port-add 10/- 100G NONE
+port-add 11/- 40G NONE
+port-add 13/- 100G NONE
+
+port-add 41/- 100G NONE
+port-add 42/- 100G NONE
+port-add 43/- 100G NONE
+port-add 44/- 100G NONE
+port-add 46/- 100G NONE
+
+port-add 19/- 100G NONE
+port-loopback 19/- serdes-near
+port-add 20/- 100G NONE
+port-loopback 20/- serdes-near
+port-add 21/- 100G NONE
+port-loopback 21/- serdes-near
+port-add 22/- 100G NONE
+port-loopback 22/- serdes-near
+port-add 23/- 100G NONE
+port-loopback 23/- serdes-near
+port-add 24/- 100G NONE
+port-loopback 24/- serdes-near
+port-add 25/- 100G NONE
+port-loopback 25/- serdes-near
+port-add 26/- 100G NONE
+port-loopback 26/- serdes-near
+port-add 51/- 100G NONE
+port-loopback 51/- serdes-near
+port-add 52/- 100G NONE
+port-loopback 52/- serdes-near
+port-add 53/- 100G NONE
+port-loopback 53/- serdes-near
+port-add 54/- 100G NONE
+port-loopback 54/- serdes-near
+port-add 55/- 100G NONE
+port-loopback 55/- serdes-near
+port-add 56/- 100G NONE
+port-loopback 56/- serdes-near
+port-add 57/- 100G NONE
+port-loopback 57/- serdes-near
+port-add 58/- 100G NONE
+port-loopback 58/- serdes-near
+
+
+port-add 33/- 100G NONE
+port-loopback 33/- serdes-near
+port-add 34/- 100G NONE
+port-loopback 34/- serdes-near
+
+
+an-set -/- 2
+port-enb -/-
+
+..
+exit
+exit
