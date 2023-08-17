@@ -23,7 +23,7 @@ table l2_forwarding {
         0xb8cef62a30ec : l2_forward(12);
         0x649d99b1688e : l2_forward(16);
         0x649d99b1669a : l2_forward(20);
-        0x08c0ebb6cd5c : l2_forward(24);
+        0x08c0ebb6e7e4 : l2_forward(36);
         0xffffffffffff : broadcast();
     }
     default_action = drop();

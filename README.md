@@ -47,70 +47,15 @@ $ ./build.sh
 Follow the *Microbenchmarks* section of `neo-switch/README.md` on the switch.
 
 **Produce results of performance benchmarks (figure 7, 9 and 10).**
-Modify the `task` section of `spec.toml`, then
+Before running benchmark for `NeoBFT-HM` and `NeoBFT-BN`, start AOM-HM switch 
+program following the instruction in `neo-switch/README.md`.
+Before running benchmark for `NeoBFT-PK`, start AOM-PK switch program.
+The other benchmarks can be running under either of the switch program.
+
+Copy the desired part of `neo4-presets.toml` into `spec.toml`, then
 ```
 $ ./artifact/neo4-run
 ```
-
-Repeat with all desired configuration of `task` section.
-
-* Throughput-latency benchmark (figure 7):
-  ```toml
-  app = "null"
-  f = 1
-  assume-byz = false
-  batch-size = 10
-  ```
-  * Unreplicated: `mode = "ur"`.
-    Set `num-client` to 1, 2, 5, 10, 15, 20, 25, 50, 100, 1000.
-  * Neo: `mode = "neo"`, and configure `multicast` section (see below).
-    * HMAC: set `num-client` to 1, 5, 10, 25, 50, 75, 100, 1000.
-    * Public key: set `num-client` to 1, 2, 5, 10, 25, 35, 50, 60, 75, 100, 500
-    * HMAC in Byzantine network: set `num-client`/`batch-size` to 1/1, 2/1, 5/1, 
-      10/2, 15/3, 25/5, 50/10, 75/20, 100/20, 125/20, 150/30, 175/40, 200/40, 
-      500/40.
-  * Zyzzyva: `mode = "zyzzyva"`.
-    Set `num-client` to 1, 2, 5, 10, 30, 40, 50, 60, 75, 100, 150, 180, 200, 
-    220, 250, 300.
-  * Zyzzyva with Byzantine fault: `mode = "zyzzyva"` and modify `assume-byz` to
-    `true`.
-    Set `num-client` to 1, 2, 5, 10, 25, 50, 75, 100, 200.
-  * PBFT: `mode = "pbft"`.
-    Set `num-client` to 1, 5, 10, 25, 50, 75, 100, 250, 500.
-  * HotStuff: `mode = "hotstuff"`.
-    Set `num-client` to 1, 10, 40, 100, 150, 200, 400.
-  * MinBFT: `mode = "minbft"`.
-    Set `num-client` to 1, 2, 5, 10, 15, 20, 25, 50, 100, 500.
-* Simulated drops benchmark (figure 9):
-  ```toml
-  mode = "neo"
-  app = "null"
-  f = 1
-  assume-byz = true
-  ```
-  Set `drop-rate` to 0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01.
-* Replicated key-value store (figure 10):
-  ```toml
-  app = "ycsb"
-  f = 1
-  assume-byz = false
-  batch-size = 10
-  ```
-  * Unreplicated: `mode = "ur"` and `num-client = 40`.
-  * Neo: `mode = "neo"`.
-    * HMAC: `num-client = 80`.
-    * Public key: `num-client = 40`.
-    * HMAC in Byzantine network: `num-client = 700`.
-    * Zyzzyva: `mode = "zyzzyva"` and `num-client = 100`.
-    * Zyzzyva with Byzantine fault: `mode = "zyzzyva"`, `num-client = 100` and
-      modify `assume-byz` to `true`.
-    * PBFT: `mode = "pbft` and `num-client = 300`.
-    * HotStuff: `mode = "hotstuff` and `num-client = 500`.
-    * MinBFT: `mode = "minbft"` and `num-client = 100`.
-
-Note: set network primitive variant for NeoBFT.
-In `multicast` section, set `variant = "halfsiphash"` for HMAC variant, and set
-`variant = "p256"` for public key variant.
 
 **Produce results of the scalable benchmark (figure 8).**
 Follow the *Perform Evaluation* section of `README-aws.md`.

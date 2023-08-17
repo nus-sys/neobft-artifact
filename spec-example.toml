@@ -1,7 +1,5 @@
 [task]
-mode = "ur"
-num-client = 1
-num-worker = 0
+# TO BE COPIED FROM `neo4-presets.toml`
 
 [multicast]
 ip = "127.0.0.255"

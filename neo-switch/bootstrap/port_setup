@@ -2,14 +2,12 @@ ucli
 pm
 port-add 9/- 100G NONE
 port-add 10/- 100G NONE
-port-add 11/- 40G NONE
-port-add 13/- 100G NONE
-
-port-add 41/- 100G NONE
 port-add 42/- 100G NONE
-port-add 43/- 100G NONE
-port-add 44/- 100G NONE
+port-add 41/- 100G NONE
+
+port-add 14/- 100G NONE
 port-add 46/- 100G NONE
+
 
 port-add 19/- 100G NONE
 port-loopback 19/- serdes-near

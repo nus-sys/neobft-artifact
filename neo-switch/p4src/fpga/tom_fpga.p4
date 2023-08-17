@@ -158,7 +158,7 @@ control Ingress(
             (0xb8cef62a30ec &&& 0xffffffffffff) : l2_forward(12);
             (0x649d99b1688e &&& 0xffffffffffff) : l2_forward(16);
             (0x649d99b1669a &&& 0xffffffffffff) : l2_forward(20);
-            (0x08c0ebb6cd5c &&& 0xffffffffffff) : l2_forward(24);
+            (0x08c0ebb6e7e4 &&& 0xffffffffffff) : l2_forward(36);
             (0x01005e000000 &&& 0xffffff000000) : l2_forward(FPGA_PORT);
             (0xffffffffffff &&& 0xffffffffffff) : broadcast();
         }
