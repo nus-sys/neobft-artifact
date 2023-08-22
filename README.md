@@ -9,7 +9,11 @@ The FPGA should be connected to the physical port 46.
 
 Servers should run Ubuntu 20.04 LTS.
 Switch should install Tofino SDE 9.7.0 and the ICA tools helper scripts.
-The FPGA host machine should install XXX.
+The FPGA host machine should have Xilinx Runtime (XRT) and deployment platform
+for Alveo U50 installed, which can be retrieved
+[here](https://www.xilinx.com/products/boards-and-kits/alveo/u50.html#vitis).
+The design is tested with host machine running Ubuntu 20.04, XRT 2.13.479 for Vitis
+toolchain 2022.1. FPGA shell version shall be `xilinx_u50_gen3x16_xdma_201920_3`.
 
 Refer to [the AWS instruction](./README-aws.md) to set up scalable benchmark's 
 hardware.
@@ -29,7 +33,8 @@ Copy the `neo-switch` directory to switch, then follow the README in it on the
 switch (the *Evaluating NeoBFT* section).
 
 **Prepare the FPGA.**
-XXX
+Copy the `neo-accel.xclbin.tgz` tarball to the FPGA host machine and untar. Then the
+FPGA device can be programmed with `xbutil program -d <FPGA_PCIE_BDF> -u <XCLBIN_FILE>`.
 
 **Prepare network specification.**
 Copy `spec-example.toml` to `spec.toml`.
