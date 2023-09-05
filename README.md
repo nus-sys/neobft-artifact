@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/672471121.svg)](https://zenodo.org/badge/latestdoi/672471121)
+
 This is the instruction of evaluating benchmark results of NeoBFT.
 
 **Prepare the hardware.**
