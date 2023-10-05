@@ -9,7 +9,7 @@ use bincode::Options;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{net::UdpSocket, runtime::Handle, task::JoinHandle};
 
-use super::{Signed, To};
+use super::{Receivers, Signed, To};
 
 #[derive(Debug, Clone, Default)]
 pub struct Config {
@@ -151,14 +151,6 @@ impl Runtime {
     }
 }
 
-pub trait Receivers {
-    type Message;
-
-    fn handle(&mut self, to: To, remote: To, message: Self::Message);
-
-    fn on_timer(&mut self, to: To, id: TimerId);
-}
-
 impl Runtime {
     pub fn run<M>(&self, receivers: &mut impl Receivers<Message = M>)
     where
@@ -195,7 +187,7 @@ impl Runtime {
                     // TODO verify
                     receivers.handle(to, remote, message)
                 }
-                Event::Timer(to, id) => receivers.on_timer(to, id),
+                Event::Timer(to, id) => receivers.on_timer(to, super::TimerId::Tokio(id)),
             }
         }
     }
@@ -275,7 +267,7 @@ mod tests {
                 self.0 = true;
             }
 
-            fn on_timer(&mut self, _: To, _: TimerId) {
+            fn on_timer(&mut self, _: To, _: crate::context::TimerId) {
                 assert!(!self.0);
                 println!("alarm");
             }

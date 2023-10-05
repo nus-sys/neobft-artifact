@@ -70,3 +70,11 @@ impl<M> Context<M> {
         }
     }
 }
+
+pub trait Receivers {
+    type Message;
+
+    fn handle(&mut self, to: To, remote: To, message: Self::Message);
+
+    fn on_timer(&mut self, to: To, id: TimerId);
+}

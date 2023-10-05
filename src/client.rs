@@ -9,11 +9,11 @@ use serde::de::DeserializeOwned;
 use crate::context::To;
 
 pub trait OnResult {
-    fn apply(self, result: Vec<u8>);
+    fn apply(self: Box<Self>, result: Vec<u8>);
 }
 
 impl<F: FnOnce(Vec<u8>)> OnResult for F {
-    fn apply(self, result: Vec<u8>) {
+    fn apply(self: Box<Self>, result: Vec<u8>) {
         self(result)
     }
 }
@@ -97,7 +97,7 @@ impl<C> Benchmark<C> {
         C::Message: DeserializeOwned,
     {
         struct R<C>(HashMap<To, Arc<C>>);
-        impl<C> crate::context::tokio::Receivers for R<C>
+        impl<C> crate::context::Receivers for R<C>
         where
             C: Client,
         {
@@ -107,7 +107,7 @@ impl<C> Benchmark<C> {
                 self.0[&to].handle(message)
             }
 
-            fn on_timer(&mut self, to: To, _: crate::context::tokio::TimerId) {
+            fn on_timer(&mut self, to: To, _: crate::context::TimerId) {
                 panic!("{to:?} timeout")
             }
         }
