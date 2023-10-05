@@ -1,4 +1,11 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, thread::JoinHandle, time::Duration};
+use std::{
+    collections::HashMap,
+    iter::repeat,
+    net::SocketAddr,
+    sync::{Arc, Barrier},
+    thread::JoinHandle,
+    time::Duration,
+};
 
 use nix::{
     sched::{sched_setaffinity, CpuSet},
@@ -32,83 +39,86 @@ fn main() {
 
     if let Some(num_client) = std::env::args().nth(1) {
         let num_client = num_client.parse::<u16>().unwrap();
-        let mut bench = Benchmark::new();
         let config = Arc::new(config);
+        let secs = 10;
 
         struct Group {
+            benchmark_thread: JoinHandle<Benchmark<replicated::unreplicated::Client>>,
             runtime_thread: JoinHandle<()>,
             dispatch_thread: JoinHandle<()>,
             dispatch_handle: DispatchHandle,
         }
 
-        let groups = Vec::from_iter(
-            (0..std::env::args()
-                .nth(2)
-                .map(|s| s.parse::<usize>().unwrap())
-                .unwrap_or(1))
-                .map(|group_index| {
-                    let runtime = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap();
-                    let mut dispatch = Dispatch::new(config.clone(), runtime.handle().clone());
+        let num_group = std::env::args()
+            .nth(2)
+            .map(|s| s.parse::<usize>().unwrap())
+            .unwrap_or(1);
+        let barrier = Arc::new(Barrier::new(num_group));
+        let groups = Vec::from_iter(repeat(barrier).take(num_group).enumerate().map(
+            |(group_index, barrier)| {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let mut dispatch = Dispatch::new(config.clone(), runtime.handle().clone());
 
-                    for group_offset in 0..num_client {
-                        let index = group_index as u16 * num_client + group_offset;
-                        let client = replicated::unreplicated::Client::new(
-                            dispatch.register(To::Client(index)),
-                            index,
-                        );
-                        bench.insert_client(To::Client(index), client);
-                    }
+                let mut benchmark = Benchmark::new();
+                for group_offset in 0..num_client {
+                    let index = group_index as u16 * num_client + group_offset;
+                    let client = replicated::unreplicated::Client::new(
+                        dispatch.register(To::Client(index)),
+                        index,
+                    );
+                    benchmark.insert_client(To::Client(index), client);
+                }
 
-                    let cancel = CancellationToken::new();
-                    let runtime_thread = std::thread::spawn({
-                        set_affinity(group_index * 2 + 1);
-                        let cancel = cancel.clone();
-                        move || runtime.block_on(cancel.cancelled())
-                    });
+                let cancel = CancellationToken::new();
+                let runtime_thread = std::thread::spawn({
+                    set_affinity(group_index * 3);
+                    let cancel = cancel.clone();
+                    move || runtime.block_on(cancel.cancelled())
+                });
 
-                    let dispatch_handle = dispatch.handle();
-                    let run = bench.run_dispatch();
-                    let dispatch_thread = std::thread::spawn(move || {
-                        set_affinity(group_index * 2 + 2);
-                        run(&mut dispatch);
-                        cancel.cancel()
-                    });
+                let dispatch_handle = dispatch.handle();
+                let run = benchmark.run_dispatch();
+                let dispatch_thread = std::thread::spawn(move || {
+                    set_affinity(group_index * 3 + 1);
+                    run(&mut dispatch);
+                    cancel.cancel()
+                });
 
-                    Group {
-                        runtime_thread,
-                        dispatch_thread,
-                        dispatch_handle,
-                    }
-                }),
-        );
+                let benchmark_thread = std::thread::spawn(move || {
+                    set_affinity(group_index * 3 + 2);
+                    barrier.wait();
+                    benchmark.close_loop(Duration::from_secs(secs), true);
+                    benchmark
+                });
 
-        set_affinity(0);
-        // warm up
-        bench.close_loop(Duration::from_secs(5), true);
-        bench.latencies.clear();
-        // real run
-        let secs = 10;
-        bench.close_loop(Duration::from_secs(secs), false);
+                Group {
+                    benchmark_thread,
+                    runtime_thread,
+                    dispatch_thread,
+                    dispatch_handle,
+                }
+            },
+        ));
 
-        for group in &groups {
-            group.dispatch_handle.stop_sync();
-        }
-        println!(
-            "{} {:?}",
-            bench.latencies.len() as f32 / secs as f32,
-            bench
-                .latencies
-                .iter()
-                .sum::<Duration>()
-                .checked_div(bench.latencies.len() as u32)
-        );
+        let mut latencies = Vec::new();
         for group in groups {
+            let benchmark = group.benchmark_thread.join().unwrap();
+            latencies.extend(benchmark.latencies);
+            group.dispatch_handle.stop_sync();
             group.dispatch_thread.join().unwrap();
             group.runtime_thread.join().unwrap();
         }
+        println!(
+            "{} {:?}",
+            latencies.len() as f32 / secs as f32,
+            latencies
+                .iter()
+                .sum::<Duration>()
+                .checked_div(latencies.len() as u32)
+        );
     } else {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -118,7 +128,7 @@ fn main() {
 
         let handle = dispatch.handle();
         std::thread::spawn(move || {
-            set_affinity(1);
+            set_affinity(0);
             runtime.block_on(async move {
                 tokio::signal::ctrl_c().await.unwrap();
                 handle.stop().await
@@ -126,7 +136,7 @@ fn main() {
             runtime.shutdown_background()
         });
 
-        set_affinity(0);
+        set_affinity(1);
         let mut replica = replicated::unreplicated::Replica::new(dispatch.register(To::Replica(0)));
         dispatch.run(&mut replica)
     }
