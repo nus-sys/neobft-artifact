@@ -36,7 +36,7 @@ struct ClientShared {
     context: Context<Message>,
     request_num: u32,
     op: Option<Vec<u8>>,
-    on_result: Option<Box<dyn OnResult>>,
+    on_result: Option<Box<dyn OnResult + Send + Sync>>,
     resend_timer: Timer,
 }
 
@@ -58,7 +58,7 @@ impl Client {
 impl crate::Client for Client {
     type Message = Message;
 
-    fn invoke(&self, op: Vec<u8>, on_result: impl Into<Box<dyn OnResult>>) {
+    fn invoke(&self, op: Vec<u8>, on_result: impl Into<Box<dyn OnResult + Send + Sync>>) {
         let mut shared = self.shared.lock().unwrap();
         shared.request_num += 1;
         assert!(shared.op.is_none());

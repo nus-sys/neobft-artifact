@@ -93,7 +93,7 @@ impl Context {
     }
 }
 
-pub struct Runtime {
+pub struct Dispatch {
     config: Arc<Config>,
     runtime: Handle,
     message_sender: flume::Sender<(To, To, Vec<u8>)>,
@@ -104,13 +104,13 @@ pub struct Runtime {
     stop_receiver: flume::Receiver<()>,
 }
 
-impl Runtime {
-    pub fn new(config: Config, runtime: Handle) -> Self {
+impl Dispatch {
+    pub fn new(config: impl Into<Arc<Config>>, runtime: Handle) -> Self {
         let (message_sender, message_receiver) = flume::unbounded();
         let (timer_sender, timer_receiver) = flume::bounded(0);
         let (shutdown_sender, shutdown_receiver) = flume::bounded(0);
         Self {
-            config: Arc::new(config),
+            config: config.into(),
             runtime,
             message_sender,
             message_receiver,
@@ -151,7 +151,7 @@ impl Runtime {
     }
 }
 
-impl Runtime {
+impl Dispatch {
     pub fn run<M>(&self, receivers: &mut impl Receivers<Message = M>)
     where
         M: DeserializeOwned,
@@ -193,19 +193,19 @@ impl Runtime {
     }
 }
 
-pub struct RuntimeHandle {
+pub struct DispatchHandle {
     stop_sender: flume::Sender<()>,
 }
 
-impl Runtime {
-    pub fn handle(&self) -> RuntimeHandle {
-        RuntimeHandle {
+impl Dispatch {
+    pub fn handle(&self) -> DispatchHandle {
+        DispatchHandle {
             stop_sender: self.stop_sender.clone(),
         }
     }
 }
 
-impl RuntimeHandle {
+impl DispatchHandle {
     pub async fn stop(&self) {
         self.stop_sender.send_async(()).await.unwrap()
     }
@@ -221,25 +221,25 @@ mod tests {
 
     fn false_alarm() {
         // let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
-        let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+        let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
-        let _enter = tokio_runtime.enter();
+        let _enter = runtime.enter();
         let config = Config::new(
             [(To::Client(0), "127.0.0.1:10000".parse().unwrap())]
                 .into_iter()
                 .collect(),
         );
-        let runtime = Runtime::new(config, tokio_runtime.handle().clone());
+        let dispatch = Dispatch::new(config, runtime.handle().clone());
 
-        let mut context = runtime.register::<()>(To::Client(0));
+        let mut context = dispatch.register::<()>(To::Client(0));
         let id = context.set(Duration::from_millis(10));
 
-        let handle = runtime.handle();
-        let message_sender = runtime.message_sender.clone();
+        let handle = dispatch.handle();
+        let message_sender = dispatch.message_sender.clone();
         std::thread::spawn(move || {
-            tokio_runtime.block_on(async move {
+            runtime.block_on(async move {
                 tokio::time::sleep(Duration::from_millis(9)).await;
                 message_sender
                     .send_async((
@@ -252,7 +252,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(1)).await;
                 handle.stop().await;
             });
-            tokio_runtime.shutdown_background();
+            runtime.shutdown_background();
         });
 
         struct R(bool, crate::context::Context<()>, crate::context::TimerId);
@@ -273,7 +273,7 @@ mod tests {
             }
         }
 
-        runtime.run(&mut R(false, context, id));
+        dispatch.run(&mut R(false, context, id));
     }
 
     #[test]

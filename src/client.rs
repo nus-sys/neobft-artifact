@@ -18,7 +18,7 @@ impl<F: FnOnce(Vec<u8>)> OnResult for F {
     }
 }
 
-impl<T: OnResult + 'static> From<T> for Box<dyn OnResult> {
+impl<T: OnResult + Send + Sync + 'static> From<T> for Box<dyn OnResult + Send + Sync> {
     fn from(value: T) -> Self {
         Box::new(value)
     }
@@ -27,7 +27,7 @@ impl<T: OnResult + 'static> From<T> for Box<dyn OnResult> {
 pub trait Client {
     type Message;
 
-    fn invoke(&self, op: Vec<u8>, on_result: impl Into<Box<dyn OnResult>>);
+    fn invoke(&self, op: Vec<u8>, on_result: impl Into<Box<dyn OnResult + Send + Sync>>);
 
     fn handle(&self, message: Self::Message);
 
@@ -36,9 +36,8 @@ pub trait Client {
 
 pub struct Benchmark<C> {
     clients: HashMap<To, Arc<C>>,
-    finish_sender: flume::Sender<To>,
-    finish_receiver: flume::Receiver<To>,
-    invoke_starts: HashMap<To, Instant>,
+    finish_sender: flume::Sender<(To, Duration)>,
+    finish_receiver: flume::Receiver<(To, Duration)>,
     pub latencies: Vec<Duration>,
 }
 
@@ -55,7 +54,6 @@ impl<C> Benchmark<C> {
             clients: Default::default(),
             finish_sender,
             finish_receiver,
-            invoke_starts: Default::default(),
             latencies: Default::default(),
         }
     }
@@ -71,29 +69,28 @@ impl<C> Benchmark<C> {
     {
         for (&index, client) in &self.clients {
             let finish_sender = self.finish_sender.clone();
-            self.invoke_starts.insert(index, Instant::now());
+            let start = Instant::now();
             // TODO
             client.invoke(Default::default(), move |_| {
-                finish_sender.send(index).unwrap()
+                finish_sender.send((index, start.elapsed())).unwrap()
             });
         }
         let deadline = Instant::now() + duration;
-        while let Ok(index) = self.finish_receiver.recv_deadline(deadline) {
-            self.latencies
-                .push(self.invoke_starts.remove(&index).unwrap().elapsed());
+        while let Ok((index, latency)) = self.finish_receiver.recv_deadline(deadline) {
+            self.latencies.push(latency);
 
             let finish_sender = self.finish_sender.clone();
-            self.invoke_starts.insert(index, Instant::now());
+            let start = Instant::now();
             // TODO
             self.clients[&index].invoke(Default::default(), move |_| {
-                finish_sender.send(index).unwrap()
+                finish_sender.send((index, start.elapsed())).unwrap()
             });
         }
     }
 
-    pub fn run(&self) -> impl FnOnce(&mut crate::context::tokio::Runtime)
+    pub fn run_dispatch(&self) -> impl FnOnce(&mut crate::context::tokio::Dispatch) + Send
     where
-        C: Client + 'static,
+        C: Client + Send + Sync + 'static,
         C::Message: DeserializeOwned,
     {
         struct R<C>(HashMap<To, Arc<C>>);
