@@ -63,17 +63,19 @@ impl<C> Benchmark<C> {
         assert!(evicted.is_none())
     }
 
-    pub fn close_loop(&mut self, duration: Duration)
+    pub fn close_loop(&mut self, duration: Duration, bootstrap: bool)
     where
         C: Client,
     {
-        for (&index, client) in &self.clients {
-            let finish_sender = self.finish_sender.clone();
-            let start = Instant::now();
-            // TODO
-            client.invoke(Default::default(), move |_| {
-                finish_sender.send((index, start.elapsed())).unwrap()
-            });
+        if bootstrap {
+            for (&index, client) in &self.clients {
+                let finish_sender = self.finish_sender.clone();
+                let start = Instant::now();
+                // TODO
+                client.invoke(Default::default(), move |_| {
+                    finish_sender.send((index, start.elapsed())).unwrap()
+                });
+            }
         }
         let deadline = Instant::now() + duration;
         while let Ok((index, latency)) = self.finish_receiver.recv_deadline(deadline) {

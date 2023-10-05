@@ -59,12 +59,12 @@ impl crate::Client for Client {
     type Message = Message;
 
     fn invoke(&self, op: Vec<u8>, on_result: impl Into<Box<dyn OnResult + Send + Sync>>) {
-        let mut shared = self.shared.lock().unwrap();
+        let shared = &mut *self.shared.lock().unwrap();
         shared.request_num += 1;
         assert!(shared.op.is_none());
         shared.op = Some(op.clone());
         shared.on_result = Some(on_result.into());
-        // shared.resend_timer.set(&mut shared.context);
+        shared.resend_timer.set(&mut shared.context);
 
         let request = Request {
             client_index: self.index,
@@ -80,12 +80,12 @@ impl crate::Client for Client {
         let Message::Reply(reply) = message else {
             unimplemented!()
         };
-        let mut shared = self.shared.lock().unwrap();
+        let shared = &mut *self.shared.lock().unwrap();
         if reply.request_num != shared.request_num {
             return;
         }
         shared.op.take().unwrap();
-        // shared.resend_timer.unset(&mut shared.context);
+        shared.resend_timer.unset(&mut shared.context);
         shared.on_result.take().unwrap().apply(reply.result);
     }
 }
@@ -110,7 +110,7 @@ impl Receivers for Replica {
     type Message = Message;
 
     fn handle(&mut self, to: To, remote: To, message: Self::Message) {
-        assert_eq!(to, To::Replica(1));
+        assert_eq!(to, To::Replica(0));
         let Message::Request(request) = message else {
             unimplemented!()
         };

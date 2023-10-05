@@ -78,7 +78,7 @@ impl Context {
         let id = self.timer_id;
         let sender = self.timer_sender.clone();
         let source = self.source;
-        let task = tokio::spawn(async move {
+        let task = self.runtime.spawn(async move {
             loop {
                 tokio::time::sleep(duration).await;
                 sender.send_async((source, id)).await.unwrap()
