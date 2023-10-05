@@ -11,11 +11,19 @@ use tokio::{net::UdpSocket, runtime::Handle, task::JoinHandle};
 
 use super::{Signed, To};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Config {
     pub addrs: HashMap<To, SocketAddr>,
     pub remotes: HashMap<SocketAddr, To>,
     // keys
+}
+
+impl Config {
+    pub fn new(addrs: HashMap<To, SocketAddr>) -> Self {
+        let remotes = HashMap::from_iter(addrs.iter().map(|(&to, &addr)| (addr, to)));
+        assert_eq!(remotes.len(), addrs.len());
+        Self { addrs, remotes }
+    }
 }
 
 #[derive(Debug)]
@@ -92,12 +100,15 @@ pub struct Runtime {
     message_receiver: flume::Receiver<(To, To, Vec<u8>)>,
     timer_sender: flume::Sender<(To, TimerId)>,
     timer_receiver: flume::Receiver<(To, TimerId)>,
+    stop_sender: flume::Sender<()>,
+    stop_receiver: flume::Receiver<()>,
 }
 
 impl Runtime {
     pub fn new(config: Config, runtime: Handle) -> Self {
         let (message_sender, message_receiver) = flume::unbounded();
         let (timer_sender, timer_receiver) = flume::bounded(0);
+        let (shutdown_sender, shutdown_receiver) = flume::bounded(0);
         Self {
             config: Arc::new(config),
             runtime,
@@ -105,6 +116,8 @@ impl Runtime {
             message_receiver,
             timer_sender,
             timer_receiver,
+            stop_sender: shutdown_sender,
+            stop_receiver: shutdown_receiver,
         }
     }
 
@@ -154,10 +167,15 @@ impl Runtime {
         enum Event {
             Message(To, To, Vec<u8>),
             Timer(To, TimerId),
+            Stop,
         }
 
         loop {
             let event = flume::Selector::new()
+                .recv(&self.stop_receiver, |event| {
+                    event.unwrap();
+                    Event::Stop
+                })
                 .recv(&self.message_receiver, |event| {
                     let (to, remote, message) = event.unwrap();
                     Event::Message(to, remote, message)
@@ -168,15 +186,108 @@ impl Runtime {
                 })
                 .wait();
             match event {
+                Event::Stop => break,
                 Event::Message(to, remote, message) => {
                     let message = bincode::options()
                         .allow_trailing_bytes()
                         .deserialize(&message)
                         .unwrap();
+                    // TODO verify
                     receivers.handle(to, remote, message)
                 }
                 Event::Timer(to, id) => receivers.on_timer(to, id),
             }
+        }
+    }
+}
+
+pub struct RuntimeHandle {
+    stop_sender: flume::Sender<()>,
+}
+
+impl Runtime {
+    pub fn handle(&self) -> RuntimeHandle {
+        RuntimeHandle {
+            stop_sender: self.stop_sender.clone(),
+        }
+    }
+}
+
+impl RuntimeHandle {
+    pub async fn stop(&self) {
+        self.stop_sender.send_async(()).await.unwrap()
+    }
+
+    pub fn stop_sync(&self) {
+        self.stop_sender.send(()).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn false_alarm() {
+        // let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
+        let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let _enter = tokio_runtime.enter();
+        let config = Config::new(
+            [(To::Client(0), "127.0.0.1:10000".parse().unwrap())]
+                .into_iter()
+                .collect(),
+        );
+        let runtime = Runtime::new(config, tokio_runtime.handle().clone());
+
+        let mut context = runtime.register::<()>(To::Client(0));
+        let id = context.set(Duration::from_millis(10));
+
+        let handle = runtime.handle();
+        let message_sender = runtime.message_sender.clone();
+        std::thread::spawn(move || {
+            tokio_runtime.block_on(async move {
+                tokio::time::sleep(Duration::from_millis(9)).await;
+                message_sender
+                    .send_async((
+                        To::Client(0),
+                        To::Replica(0),
+                        bincode::options().serialize(&()).unwrap(),
+                    ))
+                    .await
+                    .unwrap();
+                tokio::time::sleep(Duration::from_millis(1)).await;
+                handle.stop().await;
+            });
+            tokio_runtime.shutdown_background();
+        });
+
+        struct R(bool, crate::context::Context<()>, crate::context::TimerId);
+        impl Receivers for R {
+            type Message = ();
+
+            fn handle(&mut self, _: To, _: To, (): Self::Message) {
+                if !self.0 {
+                    println!("unset");
+                    self.1.unset(self.2);
+                }
+                self.0 = true;
+            }
+
+            fn on_timer(&mut self, _: To, _: TimerId) {
+                assert!(!self.0);
+                println!("alarm");
+            }
+        }
+
+        runtime.run(&mut R(false, context, id));
+    }
+
+    #[test]
+    fn false_alarm_100() {
+        for _ in 0..100 {
+            false_alarm()
         }
     }
 }
