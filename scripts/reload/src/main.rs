@@ -34,7 +34,9 @@ fn main() {
                     println!("! cleaned nonresponsive server on {host}")
                 }
             }
-            let status = Command::new(format!("{WORK_DIR}/replicated"))
+            let status = Command::new("ssh")
+                .arg(host)
+                .arg(format!("{WORK_DIR}/replicated"))
                 .arg("start-daemon")
                 .status()
                 .unwrap();

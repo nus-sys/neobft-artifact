@@ -176,17 +176,11 @@ async fn poll_benchmark(State(state): State<Arc<Mutex<AppState>>>) -> Json<Optio
     }
 }
 
-fn main() {
-    // let mut addrs = HashMap::new();
-    // for index in 0..100 {
-    //     addrs.insert(
-    //         To::Client(index),
-    //         SocketAddr::from(([10, 0, 0, 10], 20000 + index)),
-    //     );
-    // }
-    // addrs.insert(To::Replica(0), SocketAddr::from(([10, 0, 0, 1], 10000)));
-    // let config = Config::new(addrs);
+async fn poll_panic(State(state): State<Arc<Mutex<AppState>>>) -> Json<bool> {
+    Json(matches!(*state.lock().unwrap(), AppState::Panicked))
+}
 
+fn main() {
     if std::env::args().nth(1).as_deref() == Some("start-daemon") {
         let current_exe = std::env::current_exe().unwrap();
         let start_script = current_exe.with_file_name("replicated-start.sh");
@@ -223,18 +217,21 @@ fn main() {
     });
 
     let app = Router::new()
+        .route("/panic", get(poll_panic))
         .route("/task", post(set_task))
         .route("/benchmark", get(poll_benchmark))
         .with_state(state);
-    tokio::runtime::Builder::new_current_thread()
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .unwrap()
+        .unwrap();
+    runtime
         .block_on(async move {
             Server::bind(&"0.0.0.0:9999".parse().unwrap())
                 .serve(app.into_make_service())
                 .with_graceful_shutdown(async move { tokio::signal::ctrl_c().await.unwrap() })
                 .await
         })
-        .unwrap()
+        .unwrap();
+    runtime.shutdown_background()
 }

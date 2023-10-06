@@ -3,6 +3,8 @@ name = "control"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+control-messages = { version = "0.1.0", path = "../control-messages" }
+reqwest = { version = "0.11.22", default-features = false, features = ["json"] }
+tokio = { version = "1.32.0", features = ["rt", "net", "time", "macros"] }
+tokio-util = "0.7.9"
