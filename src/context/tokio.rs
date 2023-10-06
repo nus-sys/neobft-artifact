@@ -7,7 +7,13 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use bincode::Options;
 use hmac::{Hmac, Mac};
-use k256::{ecdsa::SigningKey, sha2::Sha256};
+use k256::{
+    ecdsa::{
+        signature::{DigestSigner, DigestVerifier},
+        SigningKey,
+    },
+    sha2::{Digest, Sha256},
+};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{net::UdpSocket, runtime::Handle, task::JoinHandle};
 
@@ -24,6 +30,7 @@ pub struct Config {
 #[derive(Debug, Clone)]
 pub struct ConfigHost {
     pub addr: SocketAddr,
+    pub signing_key: Option<SigningKey>,
     pub hmac_hasher: Hmac<Sha256>,
 }
 
@@ -36,6 +43,11 @@ impl Config {
                 to,
                 ConfigHost {
                     addr,
+                    signing_key: match to {
+                        To::Client(_) => None,
+                        To::Replica(index) => Some(Self::k256(index)),
+                        To::AllReplica => unimplemented!(),
+                    },
                     hmac_hasher: Self::hmac(to),
                 },
             )
@@ -43,7 +55,7 @@ impl Config {
         Self { hosts, remotes }
     }
 
-    pub fn hmac(to: To) -> Hmac<Sha256> {
+    fn hmac(to: To) -> Hmac<Sha256> {
         match to {
             To::Client(index) => {
                 Hmac::new_from_slice(format!("client-{index}").as_bytes()).unwrap()
@@ -55,7 +67,7 @@ impl Config {
         }
     }
 
-    pub fn k256(index: ReplicaIndex) -> SigningKey {
+    fn k256(index: ReplicaIndex) -> SigningKey {
         let k = format!("replica-{index}");
         let mut buf = [0; 32];
         buf[..k.as_bytes().len()].copy_from_slice(k.as_bytes());
@@ -83,12 +95,45 @@ impl Context {
         let Hasher::HMac(hasher) = hasher else {
             unreachable!()
         };
-        let buf = bincode::options()
-            .serialize(&Signed::Hmac(
-                message,
-                hasher.finalize().into_bytes().into(),
-            ))
-            .unwrap();
+        self.send_internal(
+            to,
+            bincode::options()
+                .serialize(&Signed::Hmac(
+                    message,
+                    hasher.finalize().into_bytes().into(),
+                ))
+                .unwrap(),
+        )
+    }
+
+    pub fn send_signed<M, N, F: FnOnce(&mut N, Signed<M>)>(
+        &self,
+        to: To,
+        message: M,
+        loopback: impl Into<Option<F>>,
+    ) where
+        M: Serialize + DigestHash,
+    {
+        assert!(matches!(self.source, To::Replica(_)));
+        assert!(matches!(to, To::Replica(_) | To::AllReplica));
+        let mut hasher = Hasher::Sha256(Sha256::new());
+        message.hash(&mut hasher);
+        let Hasher::Sha256(hasher) = hasher else {
+            unreachable!()
+        };
+        let signature = self.config.hosts[&self.source]
+            .signing_key
+            .as_ref()
+            .unwrap()
+            .sign_digest(hasher);
+        let message = Signed::K256(message, signature);
+        self.send_internal(to, bincode::options().serialize(&message).unwrap());
+        if let Some(loopback) = loopback.into() {
+            // loopback(message)
+        }
+    }
+
+    fn send_internal(&self, to: To, buf: Vec<u8>) {
         let config = self.config.clone();
         let socket = self.socket.clone();
         let source = self.source;
@@ -107,15 +152,6 @@ impl Context {
                 }
             }
         });
-    }
-
-    pub fn send_signed<M, N, F: FnOnce(&mut N, Signed<M>)>(
-        &self,
-        to: To,
-        message: M,
-        loopback: impl Into<Option<F>>,
-    ) {
-        todo!()
     }
 }
 
@@ -235,6 +271,21 @@ impl Dispatch {
                         .unwrap();
                     let message = match message {
                         Signed::Plain(_) => unreachable!(),
+                        Signed::K256(message, signature) => {
+                            let mut hasher = Hasher::Sha256(Sha256::new());
+                            message.hash(&mut hasher);
+                            let Hasher::Sha256(hasher) = hasher else {
+                                unreachable!()
+                            };
+                            self.config.hosts[&remote]
+                                .signing_key
+                                .as_ref()
+                                .unwrap()
+                                .verifying_key()
+                                .verify_digest(hasher, &signature)
+                                .unwrap();
+                            message
+                        }
                         Signed::Hmac(message, mac) => {
                             let mut hasher =
                                 Hasher::HMac(self.config.hosts[&remote].hmac_hasher.clone());

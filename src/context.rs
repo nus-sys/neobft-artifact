@@ -33,9 +33,10 @@ impl<M> Context<M> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Signed<M> {
     Plain(M),
+    K256(M, k256::ecdsa::Signature),
     Hmac(M, [u8; 32]),
 }
 
@@ -45,7 +46,9 @@ impl<M> Context<M> {
         to: To,
         message: M,
         loopback: impl Into<Option<F>>,
-    ) {
+    ) where
+        M: Serialize + DigestHash,
+    {
         match self {
             Self::Tokio(context) => context.send_signed(to, message, loopback),
             _ => unimplemented!(),
