@@ -33,6 +33,8 @@ fn set_affinity(index: usize) {
 
 enum AppState {
     Idle,
+    Panicked,
+
     BenchmarkClientRunning,
     BenchmarkClientFinish { stats: BenchmarkStats },
     ReplicaRunning,
@@ -168,7 +170,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
 async fn poll_benchmark(State(state): State<Arc<Mutex<AppState>>>) -> Json<Option<BenchmarkStats>> {
     let state = state.lock().unwrap();
     match &*state {
-        AppState::BenchmarkClientRunning => Json(None),
+        AppState::BenchmarkClientRunning | AppState::Panicked => Json(None),
         AppState::BenchmarkClientFinish { stats } => Json(Some(stats.clone())),
         _ => unimplemented!(),
     }
@@ -185,10 +187,45 @@ fn main() {
     // addrs.insert(To::Replica(0), SocketAddr::from(([10, 0, 0, 1], 10000)));
     // let config = Config::new(addrs);
 
+    if std::env::args().nth(1).as_deref() == Some("start-daemon") {
+        let current_exe = std::env::current_exe().unwrap();
+        let start_script = current_exe.with_file_name("replicated-start.sh");
+        std::fs::write(
+            &start_script,
+            format!(
+                "{} 1>{} 2>{} &",
+                current_exe.display(),
+                current_exe
+                    .with_file_name("replicated-stdout.txt")
+                    .display(),
+                current_exe
+                    .with_file_name("replicated-stderr.txt")
+                    .display()
+            ),
+        )
+        .unwrap();
+        let status = std::process::Command::new("bash")
+            .arg(start_script)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        return;
+    }
+
+    let state = Arc::new(Mutex::new(AppState::Idle));
+    let hook = std::panic::take_hook();
+    std::panic::set_hook({
+        let state = state.clone();
+        Box::new(move |info| {
+            *state.lock().unwrap() = AppState::Panicked;
+            hook(info)
+        })
+    });
+
     let app = Router::new()
         .route("/task", post(set_task))
         .route("/benchmark", get(poll_benchmark))
-        .with_state(Arc::new(Mutex::new(AppState::Idle)));
+        .with_state(state);
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

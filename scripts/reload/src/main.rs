@@ -21,10 +21,28 @@ fn main() {
                 .status()
                 .unwrap();
             assert!(status.success());
+            let status = Command::new("ssh")
+                .args([host, "pkill", "-INT", "replicated"])
+                .status()
+                .unwrap();
+            if status.success() {
+                let status = Command::new("ssh")
+                    .args([host, "pkill", "-KILL", "replicated"])
+                    .status()
+                    .unwrap();
+                if status.success() {
+                    println!("! cleaned nonresponsive server on {host}")
+                }
+            }
+            let status = Command::new(format!("{WORK_DIR}/replicated"))
+                .arg("start-daemon")
+                .status()
+                .unwrap();
+            assert!(status.success());
+            println!("* server started on {host}")
         })
     }));
     for thread in rsync_threads {
         thread.join().unwrap()
     }
-    //
 }

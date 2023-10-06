@@ -6,7 +6,7 @@ edition = "2021"
 [workspace]
 members = [
     ".", 
-    "scripts/update", 
+    "scripts/reload", 
     "scripts/control-messages",
     "scripts/control",
 ]
