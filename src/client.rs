@@ -1,12 +1,21 @@
 use std::{
     collections::HashMap,
-    sync::Arc,
+    iter::repeat,
+    sync::{Arc, Barrier},
+    thread::JoinHandle,
     time::{Duration, Instant},
 };
 
 use serde::de::DeserializeOwned;
+use tokio_util::sync::CancellationToken;
 
-use crate::context::To;
+use crate::{
+    common::set_affinity,
+    context::{
+        tokio::{Config, Dispatch, DispatchHandle},
+        ClientIndex, To,
+    },
+};
 
 pub trait OnResult {
     fn apply(self: Box<Self>, result: Vec<u8>);
@@ -114,4 +123,77 @@ impl<C> Benchmark<C> {
         let mut receivers = R(self.clients.clone());
         move |runtime| runtime.run(&mut receivers)
     }
+}
+
+pub fn run_benchmark(
+    dispatch_config: Config,
+    num_group: usize,
+    num_client: usize,
+    duration: Duration,
+) -> Vec<Duration> {
+    struct Group {
+        benchmark_thread: JoinHandle<Benchmark<crate::unreplicated::Client>>,
+        runtime_thread: JoinHandle<()>,
+        dispatch_thread: JoinHandle<()>,
+        dispatch_handle: DispatchHandle,
+    }
+
+    let barrier = Arc::new(Barrier::new(num_group));
+    let dispatch_config = Arc::new(dispatch_config);
+    let groups = Vec::from_iter(repeat(barrier).take(num_group).enumerate().map(
+        |(group_index, barrier)| {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let mut dispatch = Dispatch::new(dispatch_config.clone(), runtime.handle().clone());
+
+            let mut benchmark = Benchmark::new();
+            for group_offset in 0..num_client {
+                let index = (group_index * num_client + group_offset) as ClientIndex;
+                let client =
+                    crate::unreplicated::Client::new(dispatch.register(To::Client(index)), index);
+                benchmark.insert_client(To::Client(index), client);
+            }
+
+            let cancel = CancellationToken::new();
+            let runtime_thread = std::thread::spawn({
+                set_affinity(group_index * 3);
+                let cancel = cancel.clone();
+                move || runtime.block_on(cancel.cancelled())
+            });
+
+            let dispatch_handle = dispatch.handle();
+            let run = benchmark.run_dispatch();
+            let dispatch_thread = std::thread::spawn(move || {
+                set_affinity(group_index * 3 + 1);
+                run(&mut dispatch);
+                cancel.cancel()
+            });
+
+            let benchmark_thread = std::thread::spawn(move || {
+                set_affinity(group_index * 3 + 2);
+                barrier.wait();
+                benchmark.close_loop(duration, true);
+                benchmark
+            });
+
+            Group {
+                benchmark_thread,
+                runtime_thread,
+                dispatch_thread,
+                dispatch_handle,
+            }
+        },
+    ));
+
+    let mut latencies = Vec::new();
+    for group in groups {
+        let benchmark = group.benchmark_thread.join().unwrap();
+        latencies.extend(benchmark.latencies);
+        group.dispatch_handle.stop_sync();
+        group.dispatch_thread.join().unwrap();
+        group.runtime_thread.join().unwrap();
+    }
+    latencies
 }

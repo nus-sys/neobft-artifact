@@ -18,15 +18,30 @@ async fn main() {
         "nsl-node1.d2", //
     ];
 
-    let client = Arc::new(Client::new());
     let cancel = CancellationToken::new();
+    let hook = std::panic::take_hook();
+    std::panic::set_hook({
+        let cancel = cancel.clone();
+        Box::new(move |info| {
+            cancel.cancel();
+            hook(info)
+        })
+    });
+
+    let client = Arc::new(Client::new());
+    let mut sessions = Vec::new();
     for (index, host) in replica_hosts.into_iter().enumerate() {
         let task = Task {
             client_addrs: client_addrs.clone(),
             replica_addrs: replica_addrs.clone(),
             role: Role::Replica(Replica { index: index as _ }),
         };
-        spawn(host_session(host, task, client.clone(), cancel.clone()));
+        sessions.push(spawn(host_session(
+            host,
+            task,
+            client.clone(),
+            cancel.clone(),
+        )));
     }
 
     sleep(Duration::from_secs(1)).await;
@@ -39,12 +54,12 @@ async fn main() {
             duration: Duration::from_secs(10),
         }),
     };
-    spawn(host_session(
+    sessions.push(spawn(host_session(
         client_host,
         task,
         client.clone(),
         cancel.clone(),
-    ));
+    )));
 
     loop {
         select! {
@@ -61,6 +76,11 @@ async fn main() {
             println!("* {stats:?}");
             break;
         }
+    }
+
+    cancel.cancel();
+    for session in sessions {
+        session.await.unwrap()
     }
 }
 
@@ -79,10 +99,10 @@ async fn host_session(
         .await
         .unwrap();
     assert!(response.status().is_success());
-    loop {
+    let reset = loop {
         select! {
             _ = sleep(Duration::from_secs(1)) => {}
-            _ = cancel.cancelled() => break,
+            _ = cancel.cancelled() => break true,
         }
         let response = client
             .get(format!("{endpoint}/panic"))
@@ -92,7 +112,16 @@ async fn host_session(
         assert!(response.status().is_success());
         if response.json::<bool>().await.unwrap() {
             println!("! {host} panic");
-            cancel.cancel()
+            cancel.cancel();
+            break false;
         }
+    };
+    if reset {
+        let response = client
+            .post(format!("{endpoint}/reset"))
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
     }
 }
