@@ -17,16 +17,30 @@ use super::{DigestHash, Receivers, ReplicaIndex, Signed, To};
 
 #[derive(Debug, Clone, Default)]
 pub struct Config {
-    pub addrs: HashMap<To, SocketAddr>,
+    pub hosts: HashMap<To, ConfigHost>,
     pub remotes: HashMap<SocketAddr, To>,
-    // keys
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfigHost {
+    pub addr: SocketAddr,
+    pub hmac_hasher: Hmac<Sha256>,
 }
 
 impl Config {
     pub fn new(addrs: HashMap<To, SocketAddr>) -> Self {
         let remotes = HashMap::from_iter(addrs.iter().map(|(&to, &addr)| (addr, to)));
         assert_eq!(remotes.len(), addrs.len());
-        Self { addrs, remotes }
+        let hosts = HashMap::from_iter(addrs.into_iter().map(|(to, addr)| {
+            (
+                to,
+                ConfigHost {
+                    addr,
+                    hmac_hasher: Self::hmac(to),
+                },
+            )
+        }));
+        Self { hosts, remotes }
     }
 
     pub fn hmac(to: To) -> Hmac<Sha256> {
@@ -64,7 +78,7 @@ impl Context {
     pub fn send(&self, to: To, message: impl Serialize + DigestHash) {
         // really?
         assert!(matches!(self.source, To::Client(_)) || matches!(to, To::Client(_)));
-        let mut hasher = Hasher::HMac(Config::hmac(self.source));
+        let mut hasher = Hasher::HMac(self.config.hosts[&self.source].hmac_hasher.clone());
         message.hash(&mut hasher);
         let Hasher::HMac(hasher) = hasher else {
             unreachable!()
@@ -82,12 +96,12 @@ impl Context {
             match to {
                 To::Client(_) | To::Replica(_) => {
                     assert_ne!(to, source);
-                    socket.send_to(&buf, config.addrs[&to]).await.unwrap();
+                    socket.send_to(&buf, config.hosts[&to].addr).await.unwrap();
                 }
                 To::AllReplica => {
-                    for (&to, addr) in &config.addrs {
+                    for (&to, host) in &config.hosts {
                         if matches!(to, To::Replica(_)) && to != source {
-                            socket.send_to(&buf, addr).await.unwrap();
+                            socket.send_to(&buf, host.addr).await.unwrap();
                         }
                     }
                 }
@@ -159,7 +173,7 @@ impl Dispatch {
     pub fn register<M>(&self, receiver: To) -> super::Context<M> {
         let socket = Arc::new(
             self.runtime
-                .block_on(UdpSocket::bind(self.config.addrs[&receiver]))
+                .block_on(UdpSocket::bind(self.config.hosts[&receiver].addr))
                 .unwrap(),
         );
         let context = Context {
@@ -222,7 +236,8 @@ impl Dispatch {
                     let message = match message {
                         Signed::Plain(_) => unreachable!(),
                         Signed::Hmac(message, mac) => {
-                            let mut hasher = Hasher::HMac(Config::hmac(remote));
+                            let mut hasher =
+                                Hasher::HMac(self.config.hosts[&remote].hmac_hasher.clone());
                             message.hash(&mut hasher);
                             let Hasher::HMac(hasher) = hasher else {
                                 unreachable!()
