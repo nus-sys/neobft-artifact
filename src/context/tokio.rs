@@ -6,10 +6,14 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use bincode::Options;
+use hmac::{Hmac, Mac};
+use k256::{ecdsa::SigningKey, sha2::Sha256};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{net::UdpSocket, runtime::Handle, task::JoinHandle};
 
-use super::{Receivers, Signed, To};
+use crate::context::Hasher;
+
+use super::{DigestHash, Receivers, ReplicaIndex, Signed, To};
 
 #[derive(Debug, Clone, Default)]
 pub struct Config {
@@ -23,6 +27,25 @@ impl Config {
         let remotes = HashMap::from_iter(addrs.iter().map(|(&to, &addr)| (addr, to)));
         assert_eq!(remotes.len(), addrs.len());
         Self { addrs, remotes }
+    }
+
+    pub fn hmac(to: To) -> Hmac<Sha256> {
+        match to {
+            To::Client(index) => {
+                Hmac::new_from_slice(format!("client-{index}").as_bytes()).unwrap()
+            }
+            To::Replica(index) => {
+                Hmac::new_from_slice(format!("replica-{index}").as_bytes()).unwrap()
+            }
+            To::AllReplica => unimplemented!(),
+        }
+    }
+
+    pub fn k256(index: ReplicaIndex) -> SigningKey {
+        let k = format!("replica-{index}");
+        let mut buf = [0; 32];
+        buf[..k.as_bytes().len()].copy_from_slice(k.as_bytes());
+        SigningKey::from_slice(&buf).unwrap()
     }
 }
 
@@ -38,8 +61,20 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn send(&self, to: To, message: impl Serialize) {
-        let buf = bincode::options().serialize(&message).unwrap();
+    pub fn send(&self, to: To, message: impl Serialize + DigestHash) {
+        // really?
+        assert!(matches!(self.source, To::Client(_)) || matches!(to, To::Client(_)));
+        let mut hasher = Hasher::HMac(Config::hmac(self.source));
+        message.hash(&mut hasher);
+        let Hasher::HMac(hasher) = hasher else {
+            unreachable!()
+        };
+        let buf = bincode::options()
+            .serialize(&Signed::Hmac(
+                message,
+                hasher.finalize().into_bytes().into(),
+            ))
+            .unwrap();
         let config = self.config.clone();
         let socket = self.socket.clone();
         let source = self.source;
@@ -154,7 +189,7 @@ impl Dispatch {
 impl Dispatch {
     pub fn run<M>(&self, receivers: &mut impl Receivers<Message = M>)
     where
-        M: DeserializeOwned,
+        M: DeserializeOwned + DigestHash,
     {
         enum Event {
             Message(To, To, Vec<u8>),
@@ -182,9 +217,20 @@ impl Dispatch {
                 Event::Message(to, remote, message) => {
                     let message = bincode::options()
                         .allow_trailing_bytes()
-                        .deserialize(&message)
+                        .deserialize::<Signed<M>>(&message)
                         .unwrap();
-                    // TODO verify
+                    let message = match message {
+                        Signed::Plain(_) => unreachable!(),
+                        Signed::Hmac(message, mac) => {
+                            let mut hasher = Hasher::HMac(Config::hmac(remote));
+                            message.hash(&mut hasher);
+                            let Hasher::HMac(hasher) = hasher else {
+                                unreachable!()
+                            };
+                            hasher.verify(&mac.into()).unwrap();
+                            message
+                        }
+                    };
                     receivers.handle(to, remote, message)
                 }
                 Event::Timer(to, id) => receivers.on_timer(to, super::TimerId::Tokio(id)),
@@ -217,6 +263,8 @@ impl DispatchHandle {
 
 #[cfg(test)]
 mod tests {
+    use serde::Deserialize;
+
     use super::*;
 
     fn false_alarm() {
@@ -233,7 +281,13 @@ mod tests {
         );
         let dispatch = Dispatch::new(config, runtime.handle().clone());
 
-        let mut context = dispatch.register::<()>(To::Client(0));
+        #[derive(Serialize, Deserialize)]
+        struct M;
+        impl DigestHash for M {
+            fn hash(&self, _: &mut Hasher) {}
+        }
+
+        let mut context = dispatch.register::<M>(To::Client(0));
         let id = context.set(Duration::from_millis(10));
 
         let handle = dispatch.handle();
@@ -245,7 +299,7 @@ mod tests {
                     .send_async((
                         To::Client(0),
                         To::Replica(0),
-                        bincode::options().serialize(&()).unwrap(),
+                        bincode::options().serialize(&M).unwrap(),
                     ))
                     .await
                     .unwrap();
@@ -255,11 +309,11 @@ mod tests {
             runtime.shutdown_background();
         });
 
-        struct R(bool, crate::context::Context<()>, crate::context::TimerId);
+        struct R(bool, crate::context::Context<M>, crate::context::TimerId);
         impl Receivers for R {
-            type Message = ();
+            type Message = M;
 
-            fn handle(&mut self, _: To, _: To, (): Self::Message) {
+            fn handle(&mut self, _: To, _: To, M: Self::Message) {
                 if !self.0 {
                     println!("unset");
                     self.1.unset(self.2);

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     client::OnResult,
     common::Timer,
-    context::{ClientIndex, Context, Receivers, To},
+    context::{ClientIndex, Context, DigestHash, Receivers, To},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,5 +135,35 @@ impl Receivers for Replica {
 
     fn on_timer(&mut self, _: To, _: crate::context::TimerId) {
         unreachable!()
+    }
+}
+
+impl DigestHash for Message {
+    fn hash(&self, hasher: &mut crate::context::Hasher) {
+        match self {
+            Self::Request(message) => {
+                hasher.update([0]);
+                message.hash(hasher)
+            }
+            Self::Reply(message) => {
+                hasher.update([1]);
+                message.hash(hasher)
+            }
+        }
+    }
+}
+
+impl DigestHash for Request {
+    fn hash(&self, hasher: &mut crate::context::Hasher) {
+        hasher.update(self.client_index.to_le_bytes());
+        hasher.update(self.request_num.to_le_bytes());
+        hasher.update(&self.op)
+    }
+}
+
+impl DigestHash for Reply {
+    fn hash(&self, hasher: &mut crate::context::Hasher) {
+        hasher.update(self.request_num.to_le_bytes());
+        hasher.update(&self.result)
     }
 }

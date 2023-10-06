@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use serde::Serialize;
+use hmac::{Hmac, Mac};
+use k256::sha2::{Digest, Sha256};
+use serde::{Deserialize, Serialize};
 
 pub mod tokio;
 
@@ -22,7 +24,7 @@ pub enum To {
 impl<M> Context<M> {
     pub fn send(&mut self, to: To, message: M)
     where
-        M: Serialize,
+        M: Serialize + DigestHash,
     {
         match self {
             Self::Tokio(context) => context.send(to, message),
@@ -31,9 +33,10 @@ impl<M> Context<M> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Signed<M> {
     Plain(M),
+    Hmac(M, [u8; 32]),
 }
 
 impl<M> Context<M> {
@@ -77,4 +80,29 @@ pub trait Receivers {
     fn handle(&mut self, to: To, remote: To, message: Self::Message);
 
     fn on_timer(&mut self, to: To, id: TimerId);
+}
+
+pub enum Hasher {
+    Sha256(Sha256),
+    HMac(Hmac<Sha256>),
+}
+
+impl Hasher {
+    pub fn update(&mut self, data: impl AsRef<[u8]>) {
+        match self {
+            Self::Sha256(hasher) => hasher.update(data),
+            Self::HMac(hasher) => hasher.update(data.as_ref()),
+        }
+    }
+
+    pub fn chain_update(self, data: impl AsRef<[u8]>) -> Self {
+        match self {
+            Self::Sha256(hasher) => Self::Sha256(hasher.chain_update(data)),
+            Self::HMac(hasher) => Self::HMac(hasher.chain_update(data)),
+        }
+    }
+}
+
+pub trait DigestHash {
+    fn hash(&self, hasher: &mut Hasher);
 }

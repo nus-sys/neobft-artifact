@@ -138,7 +138,7 @@ fn main() {
         std::fs::write(
             &start_script,
             format!(
-                "{} 1>{} 2>{} &",
+                "RUST_BACKTRACE=1 {} 1>{} 2>{} &",
                 current_exe.display(),
                 current_exe
                     .with_file_name("replicated-stdout.txt")
