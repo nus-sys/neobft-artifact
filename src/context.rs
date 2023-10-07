@@ -1,7 +1,11 @@
 use std::time::Duration;
 
 use hmac::{Hmac, Mac};
-use k256::sha2::{Digest, Sha256};
+use k256::{
+    ecdsa::SigningKey,
+    schnorr::signature::DigestSigner,
+    sha2::{Digest, Sha256},
+};
 use serde::{Deserialize, Serialize};
 
 pub mod tokio;
@@ -87,25 +91,93 @@ pub trait Receivers {
 
 pub enum Hasher {
     Sha256(Sha256),
-    HMac(Hmac<Sha256>),
+    Hmac(Hmac<Sha256>),
 }
 
 impl Hasher {
     pub fn update(&mut self, data: impl AsRef<[u8]>) {
         match self {
             Self::Sha256(hasher) => hasher.update(data),
-            Self::HMac(hasher) => hasher.update(data.as_ref()),
+            Self::Hmac(hasher) => hasher.update(data.as_ref()),
         }
     }
 
     pub fn chain_update(self, data: impl AsRef<[u8]>) -> Self {
         match self {
             Self::Sha256(hasher) => Self::Sha256(hasher.chain_update(data)),
-            Self::HMac(hasher) => Self::HMac(hasher.chain_update(data)),
+            Self::Hmac(hasher) => Self::Hmac(hasher.chain_update(data)),
         }
     }
 }
 
 pub trait DigestHash {
     fn hash(&self, hasher: &mut Hasher);
+}
+
+#[derive(Debug, Clone)]
+pub struct Signer {
+    signing_key: SigningKey,
+    hmac: Hmac<Sha256>,
+}
+
+impl Signer {
+    pub fn sign_public<M>(&self, message: M) -> Signed<M>
+    where
+        M: DigestHash,
+    {
+        let mut hasher = Hasher::Sha256(Sha256::new());
+        message.hash(&mut hasher);
+        let Hasher::Sha256(digest) = hasher else {
+            unreachable!()
+        };
+        Signed::K256(message, self.signing_key.sign_digest(digest))
+    }
+
+    pub fn sign_private<M>(&self, message: M) -> Signed<M>
+    where
+        M: DigestHash,
+    {
+        let mut hasher = Hasher::Hmac(self.hmac.clone());
+        message.hash(&mut hasher);
+        let Hasher::Hmac(hmac) = hasher else {
+            unreachable!()
+        };
+        Signed::Hmac(message, hmac.finalize().into_bytes().into())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Verifier {
+    //
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Invalid {
+    Public,
+    Private,
+}
+
+impl std::fmt::Display for Invalid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl std::error::Error for Invalid {}
+
+impl Verifier {
+    pub fn verify<M>(&mut self, message: &Signed<M>) -> Result<(), Invalid>
+    where
+        M: DigestHash,
+    {
+        Ok(())
+    }
+}
+
+pub trait Sign<M> {
+    fn sign(message: M, signer: &Signer) -> Self;
+}
+
+pub trait Verify {
+    fn verify(&self, verifier: &Verifier) -> Result<(), Invalid>;
 }

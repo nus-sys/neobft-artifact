@@ -1,6 +1,6 @@
 //! A context based on tokio and asynchronous IO.
 //!
-//! Although the event management is asynchronous, protocol code, i.e.,
+//! Although supported by an asynchronous reactor, protocol code, i.e., 
 //! `impl Receivers` is still synchronous and running in a separated thread.
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
@@ -83,9 +83,9 @@ impl Context {
     pub fn send(&self, to: To, message: impl Serialize + DigestHash) {
         // really?
         assert!(matches!(self.source, To::Client(_)) || matches!(to, To::Client(_)));
-        let mut hasher = Hasher::HMac(self.config.hmac_hasher.clone());
+        let mut hasher = Hasher::Hmac(self.config.hmac_hasher.clone());
         message.hash(&mut hasher);
-        let Hasher::HMac(hasher) = hasher else {
+        let Hasher::Hmac(hasher) = hasher else {
             unreachable!()
         };
         self.send_internal(
@@ -280,9 +280,9 @@ impl Dispatch {
                             message
                         }
                         Signed::Hmac(message, mac) => {
-                            let mut hasher = Hasher::HMac(self.config.hmac_hasher.clone());
+                            let mut hasher = Hasher::Hmac(self.config.hmac_hasher.clone());
                             message.hash(&mut hasher);
-                            let Hasher::HMac(hasher) = hasher else {
+                            let Hasher::Hmac(hasher) = hasher else {
                                 unreachable!()
                             };
                             hasher.verify(&mac.into()).unwrap();
