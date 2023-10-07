@@ -65,15 +65,15 @@ impl Config {
 }
 
 #[derive(Debug, Clone)]
-enum Event<M> {
+enum Event {
     Message(Host, Host, Vec<u8>),
-    LoopbackMessage(Host, M),
+    LoopbackMessage(Host, Vec<u8>),
     Timer(Host, TimerId),
     Stop,
 }
 
 #[derive(Debug)]
-pub struct Context<M> {
+pub struct Context {
     config: Arc<Config>,
     socket: Arc<UdpSocket>,
     runtime: Handle,
@@ -81,28 +81,24 @@ pub struct Context<M> {
     signer: Signer,
     timer_id: TimerId,
     timer_tasks: HashMap<TimerId, JoinHandle<()>>,
-    event: flume::Sender<Event<M>>,
-    rdv_event: flume::Sender<Event<M>>,
+    event: flume::Sender<Event>,
+    rdv_event: flume::Sender<Event>,
 }
 
-impl<M> Context<M> {
-    pub fn send<N>(&self, to: To, message: N)
+impl Context {
+    pub fn send<M, N>(&self, to: To, message: N)
     where
         M: Sign<N> + Serialize,
     {
         let message = M::sign(message, &self.signer);
         self.send_buf(to, bincode::options().serialize(&message).unwrap());
-        if matches!(to, To::Loopback | To::AllReplicaWithLoopback) {
-            self.event
-                .send(Event::LoopbackMessage(self.source, message))
-                .unwrap();
-        }
     }
 
     pub fn send_buf(&self, to: To, buf: Vec<u8>) {
         let config = self.config.clone();
         let socket = self.socket.clone();
         let source = self.source;
+        let event = self.event.clone();
         self.runtime.spawn(async move {
             match to {
                 To::Host(host) => {
@@ -121,17 +117,20 @@ impl<M> Context<M> {
                 }
                 To::Loopback => {}
             }
+            if matches!(to, To::Loopback | To::AllReplicaWithLoopback) {
+                event
+                    .send_async(Event::LoopbackMessage(source, buf))
+                    .await
+                    .unwrap();
+            }
         });
     }
 }
 
 pub type TimerId = u32;
 
-impl<M> Context<M> {
-    pub fn set(&mut self, duration: Duration) -> TimerId
-    where
-        M: Send + 'static,
-    {
+impl Context {
+    pub fn set(&mut self, duration: Duration) -> TimerId {
         self.timer_id += 1;
         let id = self.timer_id;
         let event = self.rdv_event.clone();
@@ -151,15 +150,15 @@ impl<M> Context<M> {
     }
 }
 
-pub struct Dispatch<M> {
+pub struct Dispatch {
     config: Arc<Config>,
     runtime: Handle,
     verifier: Verifier,
-    event: (flume::Sender<Event<M>>, flume::Receiver<Event<M>>),
-    rdv_event: (flume::Sender<Event<M>>, flume::Receiver<Event<M>>),
+    event: (flume::Sender<Event>, flume::Receiver<Event>),
+    rdv_event: (flume::Sender<Event>, flume::Receiver<Event>),
 }
 
-impl<M> Dispatch<M> {
+impl Dispatch {
     pub fn new(config: impl Into<Arc<Config>>, runtime: Handle, verify: bool) -> Self {
         let config = config.into();
         let verifier = if verify {
@@ -176,10 +175,7 @@ impl<M> Dispatch<M> {
         }
     }
 
-    pub fn register(&self, receiver: Host) -> super::Context<M>
-    where
-        M: Send + 'static,
-    {
+    pub fn register<M>(&self, receiver: Host) -> super::Context<M> {
         let socket = Arc::new(
             self.runtime
                 .block_on(UdpSocket::bind(self.config.hosts[&receiver].addr))
@@ -218,8 +214,8 @@ impl<M> Dispatch<M> {
     }
 }
 
-impl<M> Dispatch<M> {
-    pub fn run(&self, receivers: &mut impl Receivers<Message = M>)
+impl Dispatch {
+    pub fn run<M>(&self, receivers: &mut impl Receivers<Message = M>)
     where
         M: DeserializeOwned + Verify,
     {
@@ -239,6 +235,10 @@ impl<M> Dispatch<M> {
                     receivers.handle(receiver, remote, message)
                 }
                 Event::LoopbackMessage(receiver, message) => {
+                    let message = bincode::options()
+                        .allow_trailing_bytes()
+                        .deserialize::<M>(&message)
+                        .unwrap();
                     receivers.handle_loopback(receiver, message)
                 }
                 Event::Timer(receiver, id) => {
@@ -255,11 +255,8 @@ pub struct DispatchHandle {
         Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>> + Send + Sync>,
 }
 
-impl<M> Dispatch<M> {
-    pub fn handle(&self) -> DispatchHandle
-    where
-        M: Send + 'static,
-    {
+impl Dispatch {
+    pub fn handle(&self) -> DispatchHandle {
         DispatchHandle {
             stop: Box::new({
                 let rdv_event = self.rdv_event.0.clone();

@@ -9,7 +9,7 @@ pub type ReplicaIndex = u8;
 pub type ClientIndex = u16;
 
 pub enum Context<M> {
-    Tokio(tokio::Context<M>),
+    Tokio(tokio::Context),
     Phantom(std::marker::PhantomData<M>),
 }
 
@@ -43,7 +43,7 @@ impl<M> Context<M> {
         M: crypto::Sign<N> + Serialize,
     {
         match self {
-            Self::Tokio(context) => context.send(to, message),
+            Self::Tokio(context) => context.send::<M, _>(to, message),
             _ => unimplemented!(),
         }
     }
@@ -55,10 +55,7 @@ pub enum TimerId {
 }
 
 impl<M> Context<M> {
-    pub fn set(&mut self, duration: Duration) -> TimerId
-    where
-        M: Send + 'static,
-    {
+    pub fn set(&mut self, duration: Duration) -> TimerId {
         match self {
             Self::Tokio(context) => TimerId::Tokio(context.set(duration)),
             _ => unimplemented!(),

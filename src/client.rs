@@ -100,9 +100,7 @@ impl<C> Benchmark<C> {
         }
     }
 
-    pub fn run_dispatch(
-        &self,
-    ) -> impl FnOnce(&mut crate::context::tokio::Dispatch<C::Message>) + Send
+    pub fn run_dispatch(&self) -> impl FnOnce(&mut crate::context::tokio::Dispatch) + Send
     where
         C: Client + Send + Sync + 'static,
         C::Message: DeserializeOwned + Verify,

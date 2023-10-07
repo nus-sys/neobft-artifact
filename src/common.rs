@@ -18,10 +18,7 @@ impl Timer {
         Self { id: None, duration }
     }
 
-    pub fn set<M>(&mut self, context: &mut Context<M>)
-    where
-        M: Send + 'static,
-    {
+    pub fn set<M>(&mut self, context: &mut Context<M>) {
         let evicted = self.id.replace(context.set(self.duration));
         assert!(evicted.is_none())
     }
@@ -30,10 +27,7 @@ impl Timer {
         context.unset(self.id.take().unwrap())
     }
 
-    pub fn reset<M>(&mut self, context: &mut Context<M>)
-    where
-        M: Send + 'static,
-    {
+    pub fn reset<M>(&mut self, context: &mut Context<M>) {
         self.unset(context);
         self.set(context)
     }
