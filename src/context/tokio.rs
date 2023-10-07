@@ -21,17 +21,17 @@ use crate::context::Hasher;
 
 use super::{DigestHash, Receivers, ReplicaIndex, Signed, To};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub hosts: HashMap<To, ConfigHost>,
     pub remotes: HashMap<SocketAddr, To>,
+    pub hmac_hasher: Hmac<Sha256>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ConfigHost {
     pub addr: SocketAddr,
     pub signing_key: Option<SigningKey>,
-    pub hmac_hasher: Hmac<Sha256>,
 }
 
 impl Config {
@@ -48,22 +48,15 @@ impl Config {
                         To::Replica(index) => Some(Self::k256(index)),
                         To::AllReplica => unimplemented!(),
                     },
-                    hmac_hasher: Self::hmac(to),
                 },
             )
         }));
-        Self { hosts, remotes }
-    }
-
-    fn hmac(to: To) -> Hmac<Sha256> {
-        match to {
-            To::Client(index) => {
-                Hmac::new_from_slice(format!("client-{index}").as_bytes()).unwrap()
-            }
-            To::Replica(index) => {
-                Hmac::new_from_slice(format!("replica-{index}").as_bytes()).unwrap()
-            }
-            To::AllReplica => unimplemented!(),
+        Self {
+            hosts,
+            remotes,
+            // simplified symmetrical keys setup
+            // also reduce client-side overhead a little bit by only need to sign once for broadcast
+            hmac_hasher: Hmac::new_from_slice("shared".as_bytes()).unwrap(),
         }
     }
 
@@ -90,7 +83,7 @@ impl Context {
     pub fn send(&self, to: To, message: impl Serialize + DigestHash) {
         // really?
         assert!(matches!(self.source, To::Client(_)) || matches!(to, To::Client(_)));
-        let mut hasher = Hasher::HMac(self.config.hosts[&self.source].hmac_hasher.clone());
+        let mut hasher = Hasher::HMac(self.config.hmac_hasher.clone());
         message.hash(&mut hasher);
         let Hasher::HMac(hasher) = hasher else {
             unreachable!()
@@ -287,8 +280,7 @@ impl Dispatch {
                             message
                         }
                         Signed::Hmac(message, mac) => {
-                            let mut hasher =
-                                Hasher::HMac(self.config.hosts[&remote].hmac_hasher.clone());
+                            let mut hasher = Hasher::HMac(self.config.hmac_hasher.clone());
                             message.hash(&mut hasher);
                             let Hasher::HMac(hasher) = hasher else {
                                 unreachable!()
