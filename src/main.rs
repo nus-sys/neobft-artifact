@@ -86,7 +86,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                         set_affinity(0);
                         runtime.block_on(async move {
                             cancel.cancelled().await;
-                            handle.stop().await
+                            handle.stop_async().await
                         });
                         runtime.shutdown_background()
                     });

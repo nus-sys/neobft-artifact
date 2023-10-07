@@ -100,7 +100,9 @@ impl<C> Benchmark<C> {
         }
     }
 
-    pub fn run_dispatch(&self) -> impl FnOnce(&mut crate::context::tokio::Dispatch) + Send
+    pub fn run_dispatch(
+        &self,
+    ) -> impl FnOnce(&mut crate::context::tokio::Dispatch<C::Message>) + Send
     where
         C: Client + Send + Sync + 'static,
         C::Message: DeserializeOwned + Verify,
@@ -114,6 +116,10 @@ impl<C> Benchmark<C> {
 
             fn handle(&mut self, receiver: Host, _: Host, message: Self::Message) {
                 self.0[&receiver].handle(message)
+            }
+
+            fn handle_loopback(&mut self, _: Host, _: Self::Message) {
+                unimplemented!()
             }
 
             fn on_timer(&mut self, receiver: Host, _: crate::context::TimerId) {
@@ -195,7 +201,7 @@ pub fn run_benchmark(
     for group in groups {
         let benchmark = group.benchmark_thread.join().unwrap();
         latencies.extend(benchmark.latencies);
-        group.dispatch_handle.stop_sync();
+        group.dispatch_handle.stop();
         group.dispatch_thread.join().unwrap();
         group.runtime_thread.join().unwrap();
     }

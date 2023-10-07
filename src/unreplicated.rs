@@ -134,6 +134,10 @@ impl Receivers for Replica {
         self.context.send(To::Host(remote), reply)
     }
 
+    fn handle_loopback(&mut self, _: Host, _: Self::Message) {
+        unreachable!()
+    }
+
     fn on_timer(&mut self, _: Host, _: crate::context::TimerId) {
         unreachable!()
     }
