@@ -4,24 +4,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     client::OnResult,
-    common::Timer,
+    common::{Block, BlockDigest, Chain, Request, Timer},
     context::{
         crypto::{DigestHash, Sign, Signed, Verify},
         ClientIndex, Context, Host, Receivers, To,
     },
+    App,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
     Request(Signed<Request>),
     Reply(Signed<Reply>),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Request {
-    client_index: ClientIndex,
-    request_num: u32,
-    op: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,16 +87,20 @@ impl crate::Client for Client {
 
 pub struct Replica {
     context: Context<Message>,
+    blocks: HashMap<BlockDigest, Block>,
+    chain: Chain,
     replies: HashMap<ClientIndex, Reply>,
-    app: (),
+    app: App,
 }
 
 impl Replica {
-    pub fn new(context: Context<Message>) -> Self {
+    pub fn new(context: Context<Message>, app: App) -> Self {
         Self {
             context,
+            blocks: Default::default(),
+            chain: Default::default(),
             replies: Default::default(),
-            app: (),
+            app,
         }
     }
 }
@@ -112,10 +110,7 @@ impl Receivers for Replica {
 
     fn handle(&mut self, receiver: Host, remote: Host, message: Self::Message) {
         assert_eq!(receiver, Host::Replica(0));
-        let Message::Request(request) = message else {
-            unimplemented!()
-        };
-        let Host::Client(index) = remote else {
+        let (Host::Client(index), Message::Request(request)) = (remote, message) else {
             unimplemented!()
         };
         match self.replies.get(&index) {
@@ -126,12 +121,25 @@ impl Receivers for Replica {
             }
             _ => {}
         }
-        let reply = Reply {
-            request_num: request.inner.request_num,
-            result: Default::default(), // TODO
-        };
-        self.replies.insert(index, reply.clone());
-        self.context.send(To::Host(remote), reply)
+
+        let block = self.chain.propose(&mut vec![request.inner]);
+        let evicted = self.blocks.insert(block.digest(), block.clone());
+        assert!(evicted.is_none());
+
+        let execute = self.chain.commit(&block);
+        assert!(execute);
+        for request in &block.requests {
+            let reply = Reply {
+                request_num: request.request_num,
+                result: self.app.execute(&request.op),
+            };
+            let evicted = self.replies.insert(request.client_index, reply.clone());
+            if let Some(evicted) = evicted {
+                assert_eq!(evicted.request_num, request.request_num - 1)
+            }
+            self.context.send(To::client(request.client_index), reply)
+        }
+        assert!(self.chain.next_execute().is_none())
     }
 
     fn handle_loopback(&mut self, _: Host, _: Self::Message) {
@@ -140,14 +148,6 @@ impl Receivers for Replica {
 
     fn on_timer(&mut self, _: Host, _: crate::context::TimerId) {
         unreachable!()
-    }
-}
-
-impl DigestHash for Request {
-    fn hash(&self, hasher: &mut crate::context::crypto::Hasher) {
-        hasher.update(self.client_index.to_le_bytes());
-        hasher.update(self.request_num.to_le_bytes());
-        hasher.update(&self.op)
     }
 }
 

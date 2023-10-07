@@ -49,8 +49,8 @@ async fn main() {
         client_addrs,
         replica_addrs,
         role: Role::BenchmarkClient(BenchmarkClient {
-            num_group: 5,
-            num_client: 6,
+            num_group: 1,
+            num_client: 10,
             duration: Duration::from_secs(10),
         }),
     };
