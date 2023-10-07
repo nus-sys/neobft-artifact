@@ -89,6 +89,7 @@ pub struct Replica {
     context: Context<Message>,
     blocks: HashMap<BlockDigest, Block>,
     chain: Chain,
+    requests: Vec<Request>,
     replies: HashMap<ClientIndex, Reply>,
     app: App,
 }
@@ -97,8 +98,9 @@ impl Replica {
     pub fn new(context: Context<Message>, app: App) -> Self {
         Self {
             context,
-            blocks: Default::default(),
+            blocks: HashMap::with_capacity(20 * 300 * 1000),
             chain: Default::default(),
+            requests: Default::default(),
             replies: Default::default(),
             app,
         }
@@ -122,24 +124,28 @@ impl Receivers for Replica {
             _ => {}
         }
 
-        let block = self.chain.propose(&mut vec![request.inner]);
-        let evicted = self.blocks.insert(block.digest(), block.clone());
-        assert!(evicted.is_none());
+        self.requests.push(request.inner);
+        if self.context.pending_count_lower_bound() == 0 {
+            let block = self.chain.propose(&mut self.requests);
+            assert!(block.digest() != Chain::GENESIS_DIGEST);
+            let evicted = self.blocks.insert(block.digest(), block.clone());
+            assert!(evicted.is_none());
 
-        let execute = self.chain.commit(&block);
-        assert!(execute);
-        for request in &block.requests {
-            let reply = Reply {
-                request_num: request.request_num,
-                result: self.app.execute(&request.op),
-            };
-            let evicted = self.replies.insert(request.client_index, reply.clone());
-            if let Some(evicted) = evicted {
-                assert_eq!(evicted.request_num, request.request_num - 1)
+            let execute = self.chain.commit(&block);
+            assert!(execute);
+            for request in &block.requests {
+                let reply = Reply {
+                    request_num: request.request_num,
+                    result: self.app.execute(&request.op),
+                };
+                let evicted = self.replies.insert(request.client_index, reply.clone());
+                if let Some(evicted) = evicted {
+                    assert_eq!(evicted.request_num, request.request_num - 1)
+                }
+                self.context.send(To::client(request.client_index), reply)
             }
-            self.context.send(To::client(request.client_index), reply)
+            assert!(self.chain.next_execute().is_none())
         }
-        assert!(self.chain.next_execute().is_none())
     }
 
     fn handle_loopback(&mut self, _: Host, _: Self::Message) {

@@ -107,6 +107,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                     let mut replica =
                         unreplicated::Replica::new(dispatch.register(Host::Replica(0)), App::Null);
                     dispatch.run(&mut replica)
+                    // TODO return stats
                 }
             });
             *state.lock().unwrap() = AppState::ReplicaRunning { cancel, task };

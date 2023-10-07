@@ -125,6 +125,10 @@ impl Context {
             }
         });
     }
+
+    pub fn pending_count_lower_bound(&self) -> usize {
+        self.event.len()
+    }
 }
 
 pub type TimerId = u32;

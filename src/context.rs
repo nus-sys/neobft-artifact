@@ -47,6 +47,13 @@ impl<M> Context<M> {
             _ => unimplemented!(),
         }
     }
+
+    pub fn pending_count_lower_bound(&self) -> usize {
+        match self {
+            Self::Tokio(context) => context.pending_count_lower_bound(),
+            _ => unimplemented!(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
