@@ -14,7 +14,7 @@ use crate::{
     context::{
         crypto::Verify,
         tokio::{Config, Dispatch, DispatchHandle},
-        ClientIndex, To,
+        ClientIndex, Host,
     },
 };
 
@@ -45,9 +45,9 @@ pub trait Client {
 }
 
 pub struct Benchmark<C> {
-    clients: HashMap<To, Arc<C>>,
-    finish_sender: flume::Sender<(To, Duration)>,
-    finish_receiver: flume::Receiver<(To, Duration)>,
+    clients: HashMap<Host, Arc<C>>,
+    finish_sender: flume::Sender<(Host, Duration)>,
+    finish_receiver: flume::Receiver<(Host, Duration)>,
     pub latencies: Vec<Duration>,
 }
 
@@ -68,8 +68,8 @@ impl<C> Benchmark<C> {
         }
     }
 
-    pub fn insert_client(&mut self, to: To, client: C) {
-        let evicted = self.clients.insert(to, Arc::new(client));
+    pub fn insert_client(&mut self, index: ClientIndex, client: C) {
+        let evicted = self.clients.insert(Host::Client(index), Arc::new(client));
         assert!(evicted.is_none())
     }
 
@@ -105,19 +105,19 @@ impl<C> Benchmark<C> {
         C: Client + Send + Sync + 'static,
         C::Message: DeserializeOwned + Verify,
     {
-        struct R<C>(HashMap<To, Arc<C>>);
+        struct R<C>(HashMap<Host, Arc<C>>);
         impl<C> crate::context::Receivers for R<C>
         where
             C: Client,
         {
             type Message = C::Message;
 
-            fn handle(&mut self, to: To, _: To, message: Self::Message) {
-                self.0[&to].handle(message)
+            fn handle(&mut self, receiver: Host, _: Host, message: Self::Message) {
+                self.0[&receiver].handle(message)
             }
 
-            fn on_timer(&mut self, to: To, _: crate::context::TimerId) {
-                panic!("{to:?} timeout")
+            fn on_timer(&mut self, receiver: Host, _: crate::context::TimerId) {
+                panic!("{receiver:?} timeout")
             }
         }
 
@@ -154,8 +154,8 @@ pub fn run_benchmark(
             for group_offset in 0..num_client {
                 let index = (group_index * num_client + group_offset) as ClientIndex;
                 let client =
-                    crate::unreplicated::Client::new(dispatch.register(To::Client(index)), index);
-                benchmark.insert_client(To::Client(index), client);
+                    crate::unreplicated::Client::new(dispatch.register(Host::Client(index)), index);
+                benchmark.insert_client(index, client);
             }
 
             let cancel = CancellationToken::new();

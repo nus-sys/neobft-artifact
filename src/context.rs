@@ -14,10 +14,27 @@ pub enum Context<M> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum To {
+pub enum Host {
     Client(ClientIndex),
     Replica(ReplicaIndex),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum To {
+    Host(Host),
     AllReplica,
+    Loopback,
+    AllReplicaWithLoopback,
+}
+
+impl To {
+    pub fn replica(index: ReplicaIndex) -> Self {
+        Self::Host(Host::Replica(index))
+    }
+
+    pub fn client(index: ClientIndex) -> Self {
+        Self::Host(Host::Client(index))
+    }
 }
 
 impl<M> Context<M> {
@@ -56,7 +73,7 @@ impl<M> Context<M> {
 pub trait Receivers {
     type Message;
 
-    fn handle(&mut self, to: To, remote: To, message: Self::Message);
+    fn handle(&mut self, receiver: Host, remote: Host, message: Self::Message);
 
-    fn on_timer(&mut self, to: To, id: TimerId);
+    fn on_timer(&mut self, receiver: Host, id: TimerId);
 }

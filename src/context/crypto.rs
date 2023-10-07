@@ -8,7 +8,7 @@ use k256::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{tokio::Config, ReplicaIndex, To};
+use super::{tokio::Config, Host, ReplicaIndex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Signed<M> {
@@ -117,9 +117,12 @@ impl Verifier {
         let verifying_keys = config
             .hosts
             .iter()
-            .filter_map(|(&to, host)| {
-                if let To::Replica(index) = to {
-                    Some((index, *host.signing_key.as_ref().unwrap().verifying_key()))
+            .filter_map(|(&host, host_config)| {
+                if let Host::Replica(index) = host {
+                    Some((
+                        index,
+                        *host_config.signing_key.as_ref().unwrap().verifying_key(),
+                    ))
                 } else {
                     None
                 }
@@ -168,9 +171,9 @@ pub trait Sign<M> {
     fn sign(message: M, signer: &Signer) -> Self;
 }
 
-impl<M> Sign<M> for M {
-    fn sign(message: M, _: &Signer) -> Self {
-        message
+impl<M, N: Into<M>> Sign<N> for M {
+    fn sign(message: N, _: &Signer) -> Self {
+        message.into()
     }
 }
 

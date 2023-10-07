@@ -7,7 +7,7 @@ use crate::{
     common::Timer,
     context::{
         crypto::{DigestHash, Sign, Signed, Verify},
-        ClientIndex, Context, Receivers, To,
+        ClientIndex, Context, Host, Receivers, To,
     },
 };
 
@@ -74,7 +74,7 @@ impl crate::Client for Client {
             request_num: shared.request_num,
             op,
         };
-        shared.context.send(To::Replica(0), request)
+        shared.context.send(To::replica(0), request)
     }
 
     fn handle(&self, message: Self::Message) {
@@ -110,18 +110,18 @@ impl Replica {
 impl Receivers for Replica {
     type Message = Message;
 
-    fn handle(&mut self, to: To, remote: To, message: Self::Message) {
-        assert_eq!(to, To::Replica(0));
+    fn handle(&mut self, receiver: Host, remote: Host, message: Self::Message) {
+        assert_eq!(receiver, Host::Replica(0));
         let Message::Request(request) = message else {
             unimplemented!()
         };
-        let To::Client(index) = remote else {
+        let Host::Client(index) = remote else {
             unimplemented!()
         };
         match self.replies.get(&index) {
             Some(reply) if reply.request_num > request.inner.request_num => return,
             Some(reply) if reply.request_num == request.inner.request_num => {
-                self.context.send(remote, reply.clone());
+                self.context.send(To::Host(remote), reply.clone());
                 return;
             }
             _ => {}
@@ -131,10 +131,10 @@ impl Receivers for Replica {
             result: Default::default(), // TODO
         };
         self.replies.insert(index, reply.clone());
-        self.context.send(remote, reply)
+        self.context.send(To::Host(remote), reply)
     }
 
-    fn on_timer(&mut self, _: To, _: crate::context::TimerId) {
+    fn on_timer(&mut self, _: Host, _: crate::context::TimerId) {
         unreachable!()
     }
 }

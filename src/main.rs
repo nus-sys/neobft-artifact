@@ -16,7 +16,7 @@ use replicated::{
     common::set_affinity,
     context::{
         tokio::{Config, Dispatch},
-        To,
+        Host,
     },
 };
 use tokio::task::JoinHandle;
@@ -41,10 +41,10 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
 
     let mut addrs = HashMap::new();
     for (index, addr) in task.client_addrs.into_iter().enumerate() {
-        addrs.insert(To::Client(index as _), addr);
+        addrs.insert(Host::Client(index as _), addr);
     }
     for (index, addr) in task.replica_addrs.into_iter().enumerate() {
-        addrs.insert(To::Replica(index as _), addr);
+        addrs.insert(Host::Replica(index as _), addr);
     }
     let dispatch_config = Config::new(addrs);
 
@@ -94,7 +94,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                     set_affinity(1);
                     assert_eq!(replica.index, 0);
                     let mut replica =
-                        replicated::unreplicated::Replica::new(dispatch.register(To::Replica(0)));
+                        replicated::unreplicated::Replica::new(dispatch.register(Host::Replica(0)));
                     dispatch.run(&mut replica)
                 }
             });

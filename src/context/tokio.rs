@@ -15,13 +15,13 @@ use crate::context::crypto::Verifier;
 
 use super::{
     crypto::{Sign, Signer, Verify},
-    Receivers, ReplicaIndex, To,
+    Host, Receivers, ReplicaIndex, To,
 };
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub hosts: HashMap<To, ConfigHost>,
-    pub remotes: HashMap<SocketAddr, To>,
+    pub hosts: HashMap<Host, ConfigHost>,
+    pub remotes: HashMap<SocketAddr, Host>,
     pub hmac: Hmac<Sha256>,
 }
 
@@ -32,18 +32,17 @@ pub struct ConfigHost {
 }
 
 impl Config {
-    pub fn new(addrs: HashMap<To, SocketAddr>) -> Self {
-        let remotes = HashMap::from_iter(addrs.iter().map(|(&to, &addr)| (addr, to)));
+    pub fn new(addrs: HashMap<Host, SocketAddr>) -> Self {
+        let remotes = HashMap::from_iter(addrs.iter().map(|(&host, &addr)| (addr, host)));
         assert_eq!(remotes.len(), addrs.len());
-        let hosts = HashMap::from_iter(addrs.into_iter().map(|(to, addr)| {
+        let hosts = HashMap::from_iter(addrs.into_iter().map(|(host, addr)| {
             (
-                to,
+                host,
                 ConfigHost {
                     addr,
-                    signing_key: match to {
-                        To::Client(_) => None,
-                        To::Replica(index) => Some(Self::k256(index)),
-                        To::AllReplica => unimplemented!(),
+                    signing_key: match host {
+                        Host::Client(_) => None,
+                        Host::Replica(index) => Some(Self::k256(index)),
                     },
                 },
             )
@@ -70,10 +69,10 @@ pub struct Context {
     config: Arc<Config>,
     socket: Arc<UdpSocket>,
     runtime: Handle,
-    source: To,
+    source: Host,
     signer: Signer,
     timer_id: TimerId,
-    timer_sender: flume::Sender<(To, TimerId)>,
+    timer_sender: flume::Sender<(Host, TimerId)>,
     timer_tasks: HashMap<TimerId, JoinHandle<()>>,
 }
 
@@ -83,26 +82,30 @@ impl Context {
         M: Sign<N> + Serialize,
     {
         let message = M::sign(message, &self.signer);
-        self.send_internal(to, bincode::options().serialize(&message).unwrap())
+        self.send_buf(to, bincode::options().serialize(&message).unwrap())
     }
 
-    fn send_internal(&self, to: To, buf: Vec<u8>) {
+    pub fn send_buf(&self, to: To, buf: Vec<u8>) {
         let config = self.config.clone();
         let socket = self.socket.clone();
         let source = self.source;
         self.runtime.spawn(async move {
             match to {
-                To::Client(_) | To::Replica(_) => {
-                    assert_ne!(to, source);
-                    socket.send_to(&buf, config.hosts[&to].addr).await.unwrap();
+                To::Host(host) => {
+                    assert_ne!(host, source);
+                    socket
+                        .send_to(&buf, config.hosts[&host].addr)
+                        .await
+                        .unwrap();
                 }
                 To::AllReplica => {
-                    for (&to, host) in &config.hosts {
-                        if matches!(to, To::Replica(_)) && to != source {
-                            socket.send_to(&buf, host.addr).await.unwrap();
+                    for (&host, host_config) in &config.hosts {
+                        if matches!(host, Host::Replica(_)) && host != source {
+                            socket.send_to(&buf, host_config.addr).await.unwrap();
                         }
                     }
                 }
+                _ => todo!(),
             }
         });
     }
@@ -135,10 +138,10 @@ pub struct Dispatch {
     config: Arc<Config>,
     runtime: Handle,
     verifier: Verifier,
-    message_sender: flume::Sender<(To, To, Vec<u8>)>,
-    message_receiver: flume::Receiver<(To, To, Vec<u8>)>,
-    timer_sender: flume::Sender<(To, TimerId)>,
-    timer_receiver: flume::Receiver<(To, TimerId)>,
+    message_sender: flume::Sender<(Host, Host, Vec<u8>)>,
+    message_receiver: flume::Receiver<(Host, Host, Vec<u8>)>,
+    timer_sender: flume::Sender<(Host, TimerId)>,
+    timer_receiver: flume::Receiver<(Host, TimerId)>,
     stop_sender: flume::Sender<()>,
     stop_receiver: flume::Receiver<()>,
 }
@@ -167,7 +170,7 @@ impl Dispatch {
         }
     }
 
-    pub fn register<M>(&self, receiver: To) -> super::Context<M> {
+    pub fn register<M>(&self, receiver: Host) -> super::Context<M> {
         let socket = Arc::new(
             self.runtime
                 .block_on(UdpSocket::bind(self.config.hosts[&receiver].addr))
@@ -207,8 +210,8 @@ impl Dispatch {
         M: DeserializeOwned + Verify,
     {
         enum Event {
-            Message(To, To, Vec<u8>),
-            Timer(To, TimerId),
+            Message(Host, Host, Vec<u8>),
+            Timer(Host, TimerId),
             Stop,
         }
 
@@ -219,25 +222,27 @@ impl Dispatch {
                     Event::Stop
                 })
                 .recv(&self.message_receiver, |event| {
-                    let (to, remote, message) = event.unwrap();
-                    Event::Message(to, remote, message)
+                    let (receiver, remote, message) = event.unwrap();
+                    Event::Message(receiver, remote, message)
                 })
                 .recv(&self.timer_receiver, |event| {
-                    let (to, id) = event.unwrap();
-                    Event::Timer(to, id)
+                    let (receiver, id) = event.unwrap();
+                    Event::Timer(receiver, id)
                 })
                 .wait();
             match event {
                 Event::Stop => break,
-                Event::Message(to, remote, message) => {
+                Event::Message(receiver, remote, message) => {
                     let message = bincode::options()
                         .allow_trailing_bytes()
                         .deserialize::<M>(&message)
                         .unwrap();
                     message.verify(&self.verifier).unwrap();
-                    receivers.handle(to, remote, message)
+                    receivers.handle(receiver, remote, message)
                 }
-                Event::Timer(to, id) => receivers.on_timer(to, super::TimerId::Tokio(id)),
+                Event::Timer(receiver, id) => {
+                    receivers.on_timer(receiver, super::TimerId::Tokio(id))
+                }
             }
         }
     }
@@ -279,7 +284,7 @@ mod tests {
             .unwrap();
         let _enter = runtime.enter();
         let config = Config::new(
-            [(To::Client(0), "127.0.0.1:10000".parse().unwrap())]
+            [(Host::Client(0), "127.0.0.1:10000".parse().unwrap())]
                 .into_iter()
                 .collect(),
         );
@@ -293,7 +298,7 @@ mod tests {
             }
         }
 
-        let mut context = dispatch.register::<M>(To::Client(0));
+        let mut context = dispatch.register::<M>(Host::Client(0));
         let id = context.set(Duration::from_millis(10));
 
         let handle = dispatch.handle();
@@ -303,8 +308,8 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(9)).await;
                 message_sender
                     .send_async((
-                        To::Client(0),
-                        To::Replica(0),
+                        Host::Client(0),
+                        Host::Replica(0),
                         bincode::options().serialize(&M).unwrap(),
                     ))
                     .await
@@ -319,7 +324,7 @@ mod tests {
         impl Receivers for R {
             type Message = M;
 
-            fn handle(&mut self, _: To, _: To, M: Self::Message) {
+            fn handle(&mut self, _: Host, _: Host, M: Self::Message) {
                 if !self.0 {
                     println!("unset");
                     self.1.unset(self.2);
@@ -327,7 +332,7 @@ mod tests {
                 self.0 = true;
             }
 
-            fn on_timer(&mut self, _: To, _: crate::context::TimerId) {
+            fn on_timer(&mut self, _: Host, _: crate::context::TimerId) {
                 assert!(!self.0);
                 println!("alarm");
             }
