@@ -79,7 +79,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                         .enable_all()
                         .build()
                         .unwrap();
-                    let dispatch = Dispatch::new(dispatch_config, runtime.handle().clone());
+                    let dispatch = Dispatch::new(dispatch_config, runtime.handle().clone(), true);
 
                     let handle = dispatch.handle();
                     std::thread::spawn(move || {

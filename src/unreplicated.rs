@@ -5,7 +5,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     client::OnResult,
     common::Timer,
-    context::{ClientIndex, Context, DigestHash, Receivers, Sign, Signed, To, Verify},
+    context::{
+        crypto::{DigestHash, Sign, Signed, Verify},
+        ClientIndex, Context, Receivers, To,
+    },
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,7 +140,7 @@ impl Receivers for Replica {
 }
 
 impl DigestHash for Request {
-    fn hash(&self, hasher: &mut crate::context::Hasher) {
+    fn hash(&self, hasher: &mut crate::context::crypto::Hasher) {
         hasher.update(self.client_index.to_le_bytes());
         hasher.update(self.request_num.to_le_bytes());
         hasher.update(&self.op)
@@ -145,29 +148,32 @@ impl DigestHash for Request {
 }
 
 impl DigestHash for Reply {
-    fn hash(&self, hasher: &mut crate::context::Hasher) {
+    fn hash(&self, hasher: &mut crate::context::crypto::Hasher) {
         hasher.update(self.request_num.to_le_bytes());
         hasher.update(&self.result)
     }
 }
 
 impl Sign<Request> for Message {
-    fn sign(message: Request, signer: &crate::context::Signer) -> Self {
+    fn sign(message: Request, signer: &crate::context::crypto::Signer) -> Self {
         Self::Request(signer.sign_private(message))
     }
 }
 
 impl Sign<Reply> for Message {
-    fn sign(message: Reply, signer: &crate::context::Signer) -> Self {
+    fn sign(message: Reply, signer: &crate::context::crypto::Signer) -> Self {
         Self::Reply(signer.sign_private(message))
     }
 }
 
 impl Verify for Message {
-    fn verify(&self, verifier: &crate::context::Verifier) -> Result<(), crate::context::Invalid> {
+    fn verify(
+        &self,
+        verifier: &crate::context::crypto::Verifier,
+    ) -> Result<(), crate::context::crypto::Invalid> {
         match self {
-            Self::Request(message) => verifier.verify(message),
-            Self::Reply(message) => verifier.verify(message),
+            Self::Request(message) => verifier.verify(message, None),
+            Self::Reply(message) => verifier.verify(message, 0),
         }
     }
 }

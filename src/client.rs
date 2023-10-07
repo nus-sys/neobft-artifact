@@ -12,8 +12,9 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     common::set_affinity,
     context::{
+        crypto::Verify,
         tokio::{Config, Dispatch, DispatchHandle},
-        ClientIndex, DigestHash, To, Verify,
+        ClientIndex, To,
     },
 };
 
@@ -146,7 +147,8 @@ pub fn run_benchmark(
                 .enable_all()
                 .build()
                 .unwrap();
-            let mut dispatch = Dispatch::new(dispatch_config.clone(), runtime.handle().clone());
+            let mut dispatch =
+                Dispatch::new(dispatch_config.clone(), runtime.handle().clone(), false);
 
             let mut benchmark = Benchmark::new();
             for group_offset in 0..num_client {
@@ -174,7 +176,9 @@ pub fn run_benchmark(
             let benchmark_thread = std::thread::spawn(move || {
                 set_affinity(group_index * 3 + 2);
                 barrier.wait();
-                benchmark.close_loop(duration, true);
+                benchmark.close_loop(Duration::from_secs(3), true);
+                benchmark.latencies.clear();
+                benchmark.close_loop(duration, false);
                 benchmark
             });
 

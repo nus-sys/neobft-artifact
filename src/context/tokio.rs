@@ -11,9 +11,12 @@ use k256::{ecdsa::SigningKey, sha2::Sha256};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{net::UdpSocket, runtime::Handle, task::JoinHandle};
 
-use crate::context::Verifier;
+use crate::context::crypto::Verifier;
 
-use super::{Receivers, ReplicaIndex, Sign, Signer, To, Verify};
+use super::{
+    crypto::{Sign, Signer, Verify},
+    Receivers, ReplicaIndex, To,
+};
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -68,6 +71,7 @@ pub struct Context {
     socket: Arc<UdpSocket>,
     runtime: Handle,
     source: To,
+    signer: Signer,
     timer_id: TimerId,
     timer_sender: flume::Sender<(To, TimerId)>,
     timer_tasks: HashMap<TimerId, JoinHandle<()>>,
@@ -78,11 +82,7 @@ impl Context {
     where
         M: Sign<N> + Serialize,
     {
-        let signer = Signer {
-            signing_key: self.config.hosts[&self.source].signing_key.clone(),
-            hmac: self.config.hmac.clone(),
-        };
-        let message = M::sign(message, &signer);
+        let message = M::sign(message, &self.signer);
         self.send_internal(to, bincode::options().serialize(&message).unwrap())
     }
 
@@ -134,6 +134,7 @@ impl Context {
 pub struct Dispatch {
     config: Arc<Config>,
     runtime: Handle,
+    verifier: Verifier,
     message_sender: flume::Sender<(To, To, Vec<u8>)>,
     message_receiver: flume::Receiver<(To, To, Vec<u8>)>,
     timer_sender: flume::Sender<(To, TimerId)>,
@@ -143,13 +144,20 @@ pub struct Dispatch {
 }
 
 impl Dispatch {
-    pub fn new(config: impl Into<Arc<Config>>, runtime: Handle) -> Self {
+    pub fn new(config: impl Into<Arc<Config>>, runtime: Handle, verify: bool) -> Self {
         let (message_sender, message_receiver) = flume::unbounded();
         let (timer_sender, timer_receiver) = flume::bounded(0);
         let (shutdown_sender, shutdown_receiver) = flume::bounded(0);
+        let config = config.into();
+        let verifier = if verify {
+            Verifier::new_standard(&config)
+        } else {
+            Verifier::Nop
+        };
         Self {
-            config: config.into(),
+            config,
             runtime,
+            verifier,
             message_sender,
             message_receiver,
             timer_sender,
@@ -170,6 +178,10 @@ impl Dispatch {
             socket: socket.clone(),
             runtime: self.runtime.clone(),
             source: receiver,
+            signer: Signer {
+                signing_key: self.config.hosts[&receiver].signing_key.clone(),
+                hmac: self.config.hmac.clone(),
+            },
             timer_id: Default::default(),
             timer_sender: self.timer_sender.clone(),
             timer_tasks: Default::default(),
@@ -222,8 +234,7 @@ impl Dispatch {
                         .allow_trailing_bytes()
                         .deserialize::<M>(&message)
                         .unwrap();
-                    let verifier = Verifier::Nop;
-                    message.verify(&verifier).unwrap();
+                    message.verify(&self.verifier).unwrap();
                     receivers.handle(to, remote, message)
                 }
                 Event::Timer(to, id) => receivers.on_timer(to, super::TimerId::Tokio(id)),
@@ -272,12 +283,12 @@ mod tests {
                 .into_iter()
                 .collect(),
         );
-        let dispatch = Dispatch::new(config, runtime.handle().clone());
+        let dispatch = Dispatch::new(config, runtime.handle().clone(), false);
 
         #[derive(Serialize, Deserialize)]
         struct M;
         impl Verify for M {
-            fn verify(&self, _: &Verifier) -> Result<(), crate::context::Invalid> {
+            fn verify(&self, _: &Verifier) -> Result<(), crate::context::crypto::Invalid> {
                 Ok(())
             }
         }
