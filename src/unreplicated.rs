@@ -5,13 +5,13 @@ use serde::{Deserialize, Serialize};
 use crate::{
     client::OnResult,
     common::Timer,
-    context::{ClientIndex, Context, DigestHash, Receivers, To},
+    context::{ClientIndex, Context, DigestHash, Receivers, Sign, Signed, To, Verify},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
-    Request(Request),
-    Reply(Reply),
+    Request(Signed<Request>),
+    Reply(Signed<Reply>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,9 +71,7 @@ impl crate::Client for Client {
             request_num: shared.request_num,
             op,
         };
-        shared
-            .context
-            .send(To::Replica(0), Message::Request(request))
+        shared.context.send(To::Replica(0), request)
     }
 
     fn handle(&self, message: Self::Message) {
@@ -81,12 +79,12 @@ impl crate::Client for Client {
             unimplemented!()
         };
         let shared = &mut *self.shared.lock().unwrap();
-        if reply.request_num != shared.request_num {
+        if reply.inner.request_num != shared.request_num {
             return;
         }
         shared.op.take().unwrap();
         shared.resend_timer.unset(&mut shared.context);
-        shared.on_result.take().unwrap().apply(reply.result);
+        shared.on_result.take().unwrap().apply(reply.inner.result);
     }
 }
 
@@ -118,38 +116,23 @@ impl Receivers for Replica {
             unimplemented!()
         };
         match self.replies.get(&index) {
-            Some(reply) if reply.request_num > request.request_num => return,
-            Some(reply) if reply.request_num == request.request_num => {
-                self.context.send(remote, Message::Reply(reply.clone()));
+            Some(reply) if reply.request_num > request.inner.request_num => return,
+            Some(reply) if reply.request_num == request.inner.request_num => {
+                self.context.send(remote, reply.clone());
                 return;
             }
             _ => {}
         }
         let reply = Reply {
-            request_num: request.request_num,
+            request_num: request.inner.request_num,
             result: Default::default(), // TODO
         };
         self.replies.insert(index, reply.clone());
-        self.context.send(remote, Message::Reply(reply))
+        self.context.send(remote, reply)
     }
 
     fn on_timer(&mut self, _: To, _: crate::context::TimerId) {
         unreachable!()
-    }
-}
-
-impl DigestHash for Message {
-    fn hash(&self, hasher: &mut crate::context::Hasher) {
-        match self {
-            Self::Request(message) => {
-                hasher.update([0]);
-                message.hash(hasher)
-            }
-            Self::Reply(message) => {
-                hasher.update([1]);
-                message.hash(hasher)
-            }
-        }
     }
 }
 
@@ -165,5 +148,26 @@ impl DigestHash for Reply {
     fn hash(&self, hasher: &mut crate::context::Hasher) {
         hasher.update(self.request_num.to_le_bytes());
         hasher.update(&self.result)
+    }
+}
+
+impl Sign<Request> for Message {
+    fn sign(message: Request, signer: &crate::context::Signer) -> Self {
+        Self::Request(signer.sign_private(message))
+    }
+}
+
+impl Sign<Reply> for Message {
+    fn sign(message: Reply, signer: &crate::context::Signer) -> Self {
+        Self::Reply(signer.sign_private(message))
+    }
+}
+
+impl Verify for Message {
+    fn verify(&self, verifier: &crate::context::Verifier) -> Result<(), crate::context::Invalid> {
+        match self {
+            Self::Request(message) => verifier.verify(message),
+            Self::Reply(message) => verifier.verify(message),
+        }
     }
 }

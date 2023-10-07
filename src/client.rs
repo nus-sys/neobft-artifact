@@ -13,7 +13,7 @@ use crate::{
     common::set_affinity,
     context::{
         tokio::{Config, Dispatch, DispatchHandle},
-        ClientIndex, DigestHash, To,
+        ClientIndex, DigestHash, To, Verify,
     },
 };
 
@@ -102,7 +102,7 @@ impl<C> Benchmark<C> {
     pub fn run_dispatch(&self) -> impl FnOnce(&mut crate::context::tokio::Dispatch) + Send
     where
         C: Client + Send + Sync + 'static,
-        C::Message: DeserializeOwned + DigestHash,
+        C::Message: DeserializeOwned + Verify,
     {
         struct R<C>(HashMap<To, Arc<C>>);
         impl<C> crate::context::Receivers for R<C>

@@ -26,38 +26,28 @@ pub enum To {
 }
 
 impl<M> Context<M> {
-    pub fn send(&mut self, to: To, message: M)
+    pub fn send<N>(&mut self, to: To, message: N)
     where
-        M: Serialize + DigestHash,
+        M: Sign<N> + Serialize,
     {
         match self {
-            Self::Tokio(context) => context.send(to, message),
+            Self::Tokio(context) => context.send::<M, _>(to, message),
             _ => unimplemented!(),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Signed<M> {
-    Plain(M),
-    K256(M, k256::ecdsa::Signature),
-    Hmac(M, [u8; 32]),
+pub struct Signed<M> {
+    pub inner: M,
+    pub signature: Signature,
 }
 
-impl<M> Context<M> {
-    pub fn send_signed<N, F: FnOnce(&mut N, Signed<M>)>(
-        &mut self,
-        to: To,
-        message: M,
-        loopback: impl Into<Option<F>>,
-    ) where
-        M: Serialize + DigestHash,
-    {
-        match self {
-            Self::Tokio(context) => context.send_signed(to, message, loopback),
-            _ => unimplemented!(),
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Signature {
+    Plain,
+    K256(k256::ecdsa::Signature),
+    Hmac([u8; 32]),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -116,8 +106,8 @@ pub trait DigestHash {
 
 #[derive(Debug, Clone)]
 pub struct Signer {
-    signing_key: SigningKey,
-    hmac: Hmac<Sha256>,
+    pub signing_key: Option<SigningKey>,
+    pub hmac: Hmac<Sha256>,
 }
 
 impl Signer {
@@ -130,7 +120,10 @@ impl Signer {
         let Hasher::Sha256(digest) = hasher else {
             unreachable!()
         };
-        Signed::K256(message, self.signing_key.sign_digest(digest))
+        Signed {
+            inner: message,
+            signature: Signature::K256(self.signing_key.as_ref().unwrap().sign_digest(digest)),
+        }
     }
 
     pub fn sign_private<M>(&self, message: M) -> Signed<M>
@@ -142,13 +135,16 @@ impl Signer {
         let Hasher::Hmac(hmac) = hasher else {
             unreachable!()
         };
-        Signed::Hmac(message, hmac.finalize().into_bytes().into())
+        Signed {
+            inner: message,
+            signature: Signature::Hmac(hmac.finalize().into_bytes().into()),
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum Verifier {
-    //
+    Nop,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -166,7 +162,7 @@ impl std::fmt::Display for Invalid {
 impl std::error::Error for Invalid {}
 
 impl Verifier {
-    pub fn verify<M>(&mut self, message: &Signed<M>) -> Result<(), Invalid>
+    pub fn verify<M>(&self, message: &Signed<M>) -> Result<(), Invalid>
     where
         M: DigestHash,
     {
@@ -176,6 +172,12 @@ impl Verifier {
 
 pub trait Sign<M> {
     fn sign(message: M, signer: &Signer) -> Self;
+}
+
+impl<M> Sign<M> for M {
+    fn sign(message: M, _: &Signer) -> Self {
+        message
+    }
 }
 
 pub trait Verify {

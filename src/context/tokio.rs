@@ -1,31 +1,25 @@
 //! A context based on tokio and asynchronous IO.
 //!
-//! Although supported by an asynchronous reactor, protocol code, i.e., 
+//! Although supported by an asynchronous reactor, protocol code, i.e.,
 //! `impl Receivers` is still synchronous and running in a separated thread.
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use bincode::Options;
 use hmac::{Hmac, Mac};
-use k256::{
-    ecdsa::{
-        signature::{DigestSigner, DigestVerifier},
-        SigningKey,
-    },
-    sha2::{Digest, Sha256},
-};
+use k256::{ecdsa::SigningKey, sha2::Sha256};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{net::UdpSocket, runtime::Handle, task::JoinHandle};
 
-use crate::context::Hasher;
+use crate::context::Verifier;
 
-use super::{DigestHash, Receivers, ReplicaIndex, Signed, To};
+use super::{Receivers, ReplicaIndex, Sign, Signer, To, Verify};
 
 #[derive(Debug, Clone)]
 pub struct Config {
     pub hosts: HashMap<To, ConfigHost>,
     pub remotes: HashMap<SocketAddr, To>,
-    pub hmac_hasher: Hmac<Sha256>,
+    pub hmac: Hmac<Sha256>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,7 +50,7 @@ impl Config {
             remotes,
             // simplified symmetrical keys setup
             // also reduce client-side overhead a little bit by only need to sign once for broadcast
-            hmac_hasher: Hmac::new_from_slice("shared".as_bytes()).unwrap(),
+            hmac: Hmac::new_from_slice("shared".as_bytes()).unwrap(),
         }
     }
 
@@ -80,50 +74,16 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn send(&self, to: To, message: impl Serialize + DigestHash) {
-        // really?
-        assert!(matches!(self.source, To::Client(_)) || matches!(to, To::Client(_)));
-        let mut hasher = Hasher::Hmac(self.config.hmac_hasher.clone());
-        message.hash(&mut hasher);
-        let Hasher::Hmac(hasher) = hasher else {
-            unreachable!()
-        };
-        self.send_internal(
-            to,
-            bincode::options()
-                .serialize(&Signed::Hmac(
-                    message,
-                    hasher.finalize().into_bytes().into(),
-                ))
-                .unwrap(),
-        )
-    }
-
-    pub fn send_signed<M, N, F: FnOnce(&mut N, Signed<M>)>(
-        &self,
-        to: To,
-        message: M,
-        loopback: impl Into<Option<F>>,
-    ) where
-        M: Serialize + DigestHash,
+    pub fn send<M, N>(&self, to: To, message: N)
+    where
+        M: Sign<N> + Serialize,
     {
-        assert!(matches!(self.source, To::Replica(_)));
-        assert!(matches!(to, To::Replica(_) | To::AllReplica));
-        let mut hasher = Hasher::Sha256(Sha256::new());
-        message.hash(&mut hasher);
-        let Hasher::Sha256(hasher) = hasher else {
-            unreachable!()
+        let signer = Signer {
+            signing_key: self.config.hosts[&self.source].signing_key.clone(),
+            hmac: self.config.hmac.clone(),
         };
-        let signature = self.config.hosts[&self.source]
-            .signing_key
-            .as_ref()
-            .unwrap()
-            .sign_digest(hasher);
-        let message = Signed::K256(message, signature);
-        self.send_internal(to, bincode::options().serialize(&message).unwrap());
-        if let Some(loopback) = loopback.into() {
-            // loopback(message)
-        }
+        let message = M::sign(message, &signer);
+        self.send_internal(to, bincode::options().serialize(&message).unwrap())
     }
 
     fn send_internal(&self, to: To, buf: Vec<u8>) {
@@ -232,7 +192,7 @@ impl Dispatch {
 impl Dispatch {
     pub fn run<M>(&self, receivers: &mut impl Receivers<Message = M>)
     where
-        M: DeserializeOwned + DigestHash,
+        M: DeserializeOwned + Verify,
     {
         enum Event {
             Message(To, To, Vec<u8>),
@@ -260,35 +220,10 @@ impl Dispatch {
                 Event::Message(to, remote, message) => {
                     let message = bincode::options()
                         .allow_trailing_bytes()
-                        .deserialize::<Signed<M>>(&message)
+                        .deserialize::<M>(&message)
                         .unwrap();
-                    let message = match message {
-                        Signed::Plain(_) => unreachable!(),
-                        Signed::K256(message, signature) => {
-                            let mut hasher = Hasher::Sha256(Sha256::new());
-                            message.hash(&mut hasher);
-                            let Hasher::Sha256(hasher) = hasher else {
-                                unreachable!()
-                            };
-                            self.config.hosts[&remote]
-                                .signing_key
-                                .as_ref()
-                                .unwrap()
-                                .verifying_key()
-                                .verify_digest(hasher, &signature)
-                                .unwrap();
-                            message
-                        }
-                        Signed::Hmac(message, mac) => {
-                            let mut hasher = Hasher::Hmac(self.config.hmac_hasher.clone());
-                            message.hash(&mut hasher);
-                            let Hasher::Hmac(hasher) = hasher else {
-                                unreachable!()
-                            };
-                            hasher.verify(&mac.into()).unwrap();
-                            message
-                        }
-                    };
+                    let verifier = Verifier::Nop;
+                    message.verify(&verifier).unwrap();
                     receivers.handle(to, remote, message)
                 }
                 Event::Timer(to, id) => receivers.on_timer(to, super::TimerId::Tokio(id)),
@@ -341,8 +276,10 @@ mod tests {
 
         #[derive(Serialize, Deserialize)]
         struct M;
-        impl DigestHash for M {
-            fn hash(&self, _: &mut Hasher) {}
+        impl Verify for M {
+            fn verify(&self, _: &Verifier) -> Result<(), crate::context::Invalid> {
+                Ok(())
+            }
         }
 
         let mut context = dispatch.register::<M>(To::Client(0));
