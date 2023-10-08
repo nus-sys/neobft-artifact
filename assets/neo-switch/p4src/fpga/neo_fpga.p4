@@ -13,7 +13,6 @@ typedef bit<48> mac_addr_t;
 typedef bit<16> ether_type_t;
 typedef bit<32> ipv4_addr_t;
 
-const ether_type_t ETHERTYPE_TBFT = 0x88d5;
 const ether_type_t ETHERTYPE_IPV4 = 0x0800;
 
 #define IP_PROTOCOLS_UDP    17
@@ -31,8 +30,6 @@ header ethernet_h {
 	mac_addr_t dst_addr;
 	mac_addr_t src_addr;
 #endif
-	// mac_addr_t dst_addr;
-	// mac_addr_t src_addr;
     ether_type_t    ether_type;
 }
 
@@ -195,32 +192,11 @@ control Ingress(
 #else // FPGA_DEBUG
 
         if(ig_intr_md.ingress_port == FPGA_PORT) {
-#ifdef MEASURE_LATENCY
-            // temp0 = hdr.ethernet.src_addr[31:0];
-            // temp1 = ig_prsr_md.global_tstamp[31:0];
-            // temp2 = temp1 - temp0;
-            // hdr.ethernet.src_addr = 16w0 ++ temp2;
-            ig_tm_md.ucast_egress_port= 9w0;    // send to node1
-#else
             multicast_decision.apply();
-#endif
         } else {
-#ifdef MEASURE_LATENCY
-            if(ig_intr_md.ingress_port == 9w68) {
-                hdr.ethernet.src_addr = ig_prsr_md.global_tstamp;
-                ig_tm_md.ucast_egress_port= FPGA_PORT;
-            }
-            // ig_tm_md.ucast_egress_port= 9w0;    // send to node1
-#else
             l2_forwarding_decision.apply();
-#endif
         }
-#ifdef MEASURE_LATENCY
-        ig_tm_md.bypass_egress = 0;
-#else
         ig_tm_md.bypass_egress = 1;
-#endif
-
 #endif // FPGA_DEBUG
     }
 }
@@ -267,19 +243,8 @@ parser EgressParser(packet_in        pkt,
     /* This is a mandatory state, required by Tofino Architecture */
     state start {
         pkt.extract(eg_intr_md);
-#ifdef MEASURE_LATENCY
-        transition parse_ethernet;
-#else
-        transition accept;
-#endif
-    }
-
-#ifdef MEASURE_LATENCY
-    state parse_ethernet {
-        pkt.extract(hdr.ethernet);
         transition accept;
     }
-#endif
 }
 
     /***************** M A T C H - A C T I O N  *********************/
@@ -294,22 +259,7 @@ control Egress(
     inout egress_intrinsic_metadata_for_deparser_t     eg_dprsr_md,
     inout egress_intrinsic_metadata_for_output_port_t  eg_oport_md)
 {
-#ifdef MEASURE_LATENCY
-    bit<32> temp0 = 0;
-    bit<32> temp1 = 0;
-    bit<32> temp2 = 0;
-#endif 
-
-    apply {
-#ifdef MEASURE_LATENCY
-        if(eg_intr_md.egress_port == 9w0) {
-            temp0 = hdr.ethernet.src_addr[31:0];
-            temp1 = eg_prsr_md.global_tstamp[31:0];
-            temp2 = temp1 - temp0;
-            hdr.ethernet.src_addr = 16w0 ++ temp2;
-        }
-#endif
-    }
+    apply {}
 }
 
     /*********************  D E P A R S E R  ************************/

@@ -1,12 +1,10 @@
 struct pipe_1_header_t {
     ethernet_h ethernet;
-    reserved_h reserved;
-    // ipv4_h ipv4;
-    // tcp_h tcp;
-    // udp_h udp;
+    // reserved_h reserved;
+    ipv4_h ipv4;
+    udp_h udp;
     bft_h bft;
-	// s_digest_h s_digest;
-
+	
     sip_inout_h sip00;
     sip_inout_h sip01;
     sip_meta_h sip00_meta;

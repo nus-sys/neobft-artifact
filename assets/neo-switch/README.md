@@ -13,37 +13,34 @@ Before proceeding, make sure that you have loaded the necessary environment vari
 First, compile both the data plane programs for HMAC and FPGA by doing `make`.
 
 ### AOM-HM
-Start the AOM-HM switch program: `$SDE/run_switchd.sh -p tom_hmac`.
+Start the AOM-HM switch program: `$SDE/run_switchd.sh -p neo_hmac`.
 Then, setup the program using `./setup_hmac.sh`.
 
 #### Data Plane Design
 In the following diagram, we show the AOM-HM switch design.
 For every incoming AOM packet, it is forwarded to the AOM pipeline (pipe 1) for processing (via recirculation).
-Once it is done, it will be forwarded back and multicasted at pipe 0.
+Once it is done, it will be forwarded back and multicast at pipe 0.
 If there are more than four replicas, it will be recirculated at pipe 0, and computes the HMAC for the subsequent four replicas (or next "shard").
 Refer to the paper for more details.
 
 ![image](figures/tomHMAC.jpg)
 
 ### AOM-PK
-Start the FPGA switch program: `$SDE/run_switchd.sh -p tom_fpga`.
+Start the FPGA switch program: `$SDE/run_switchd.sh -p neo_fpga`.
 Then, setup the program using `./setup_fpga.sh`.
 
 
 ## Microbenchmarks
-To run the microbenchmarks (Figure 4, 5 and 6 in the paper), there are a few things that needs to be done.
-First, recompile all the data plane programs, do `make debug`.
-
-To measure the latency, we will use the switch's packet generator feature to generate packets and the packets delivered to the replicas will have contain the latency numbers in the Ethernet headers.
+To measure the latency, we will use the switch's packet generator feature to generate packets and the packets delivered to the replicas will contain the latency numbers in the Ethernet headers.
 
 ### P4 Programs
 #### AOM-HM
-Similarly, start the HMAC switch program: `$SDE/run_switchd.sh -p tom_hmac`.
-Then, setup the program using `./setup_hmac.sh`.
+Similarly, start the HMAC switch program: `$SDE/run_switchd.sh -p neo_hmac_bench`.
+Then, set up the program using `./setup_hmac.sh`.
 
 #### AOM-PK
-Similarly, start the FPGA switch program: `$SDE/run_switchd.sh -p tom_fpga`.
-Then, setup the program using `./setup_fpga.sh`.
+Similarly, start the FPGA switch program: `$SDE/run_switchd.sh -p neo_fpga_bench`.
+Then, set up the program using `./setup_fpga.sh`.
 
 ### Packet Generation
 #### AOM-HM
@@ -64,7 +61,7 @@ This uses the `run_pd_rpc.py` script.
 To start packet generation, type the command `pktgen.app_enable(1)`.
 Once you are done, make sure to disable it with `pktgen.app_disable(1)`.
 
-To exert different loads, look into `control/neo_pktgen_hmac.py`, and use the corresponding `app_cfg.timer`, e.g., 900 for 99% load (no packet losses).
+To exert different loads, look into `control/neo_pktgen_fpga.py`, and use the corresponding `app_cfg.timer`, e.g., 900 for 99% load (no packet losses).
 
 Repeat this for all three loads, i.e., 25%, 50%, and 99%.
 
@@ -76,7 +73,7 @@ We assume `ens1f0` as the network interface.
 To get the numbers, do the following:
 ```bash
 # capture the NeoBFT HMAC-signed packets, you can stop capturing after 10 seconds
-sudo tcpdump -i ens1f0 | grep -e "00:00:00:" > extracted.log
+sudo tcpdump -i ens1f0 -e | grep -e "00:00:00:" > extracted.log
 
 # we are only interested in the Ethernet header's source address
 awk -F ' ' '{print $6}' extracted.log > values.log
@@ -89,7 +86,7 @@ cp values.log results/results_hmac99.log
 To get the numbers, do the following:
 ```bash
 # capture the FPGA-signed NeoBFT packets
-sudo tcpdump -i ens1f0  -e udp[5] != 0 and udp[32] != 0 and udp[33] != 0  > extracted.log
+sudo tcpdump -i ens1f0  -e | grep -e "00:00:00:" > extracted.log
 
 # we are only interested in the Ethernet header's source address
 awk -F ' ' '{print $6}' extracted.log > values.log

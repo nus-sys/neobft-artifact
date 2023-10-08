@@ -13,36 +13,35 @@ parser TomPipe1SwitchIngressParser(
     state parse_ethernet {
         pkt.extract(hdr.ethernet);
         transition select(hdr.ethernet.ether_type) {
-            // ETHERTYPE_IPV4 : parse_ipv4;
-            ETHERTYPE_TBFT : parse_reserved;
+            ETHERTYPE_IPV4 : parse_ipv4;
             default : reject;
         }
     }
 
-    state parse_reserved {
-        pkt.extract(hdr.reserved);
-        transition select(hdr.ethernet.dst_addr[47:32], hdr.ethernet.dst_addr[31:24]) {
-            (0x0100, 0x5e) : parse_bft;
+    // state parse_reserved {
+    //     pkt.extract(hdr.reserved);
+    //     transition select(hdr.ethernet.dst_addr[47:32], hdr.ethernet.dst_addr[31:24]) {
+    //         (0x0100, 0x5e) : parse_bft;
+    //         default : accept;
+    //     }
+    //     // transition parse_bft;
+    // }
+
+    state parse_ipv4 {
+        pkt.extract(hdr.ipv4);
+        transition select(hdr.ipv4.protocol) {
+            IP_PROTOCOLS_UDP : parse_udp;
             default : accept;
         }
-        // transition parse_bft;
     }
 
-    // state parse_ipv4 {
-    //     pkt.extract(hdr.ipv4);
-    //     transition select(hdr.ipv4.protocol) {
-    //         IP_PROTOCOLS_UDP : parse_udp;
-    //         default : accept;
-    //     }
-    // }
-
-    // state parse_udp {
-    //     pkt.extract(hdr.udp);
-    //     transition select(hdr.udp.dst_port) {
-    //         BFT_PORT : parse_bft;
-    //         default : accept;
-    //     }
-    // }
+    state parse_udp {
+        pkt.extract(hdr.udp);
+        transition select(hdr.udp.dst_port) {
+            BFT_PORT : parse_bft;
+            default : accept;
+        }
+    }
 
     state parse_bft {
         pkt.extract(hdr.bft);
@@ -115,36 +114,35 @@ parser TomPipe1SwitchEgressParser(
     state parse_ethernet {
         pkt.extract(hdr.ethernet);
         transition select(hdr.ethernet.ether_type) {
-            // ETHERTYPE_IPV4 : parse_ipv4;
-            ETHERTYPE_TBFT : parse_reserved;
+            ETHERTYPE_IPV4 : parse_ipv4;
             default : reject;
         }
     }
 
-    state parse_reserved {
-        pkt.extract(hdr.reserved);
-        transition select(hdr.ethernet.dst_addr[47:32], hdr.ethernet.dst_addr[31:24]) {
-            (0x0100, 0x5e) : parse_bft;
+    // state parse_reserved {
+    //     pkt.extract(hdr.reserved);
+    //     transition select(hdr.ethernet.dst_addr[47:32], hdr.ethernet.dst_addr[31:24]) {
+    //         (0x0100, 0x5e) : parse_bft;
+    //         default : accept;
+    //     }
+    //     // transition parse_bft;
+    // }
+
+    state parse_ipv4 {
+        pkt.extract(hdr.ipv4);
+        transition select(hdr.ipv4.protocol) {
+            IP_PROTOCOLS_UDP : parse_udp;
             default : accept;
         }
-        // transition parse_bft;
     }
 
-    // state parse_ipv4 {
-    //     pkt.extract(hdr.ipv4);
-    //     transition select(hdr.ipv4.protocol) {
-    //         IP_PROTOCOLS_UDP : parse_udp;
-    //         default : accept;
-    //     }
-    // }
-
-    // state parse_udp {
-    //     pkt.extract(hdr.udp);
-    //     transition select(hdr.udp.dst_port) {
-    //         BFT_PORT : parse_bft;
-    //         default : accept;
-    //     }
-    // }
+    state parse_udp {
+        pkt.extract(hdr.udp);
+        transition select(hdr.udp.dst_port) {
+            BFT_PORT : parse_bft;
+            default : accept;
+        }
+    }
 
     state parse_bft {
         pkt.extract(hdr.bft);

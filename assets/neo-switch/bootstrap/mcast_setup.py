@@ -4,8 +4,8 @@ bfrt.pre.mgid.entry(998, [998], [False],[0]).push()
 
 # Create a Multicast Node with RID=997 and ports [0, 4, 8, 12, 28]
 # This includes sending to smartNIC
-bfrt.pre.node.entry(997, 997,[],[0, 4, 8, 12, 28]).push()
-bfrt.pre.mgid.entry(997, [997], [False],[0]).push()
+# bfrt.pre.node.entry(997, 997,[],[0, 4, 8, 12, 28]).push()
+# bfrt.pre.mgid.entry(997, [997], [False],[0]).push()
 
 # print ("Multicast Groups")
 # bfrt.pre.mgid.dump(table=True)

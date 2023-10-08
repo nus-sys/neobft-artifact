@@ -1,10 +1,11 @@
+# THIS IS PYTHON 2
 from scapy.all import *
 
 # eth = Ether(src='01:00:5e:00:00:00', dst='01:00:5e:00:00:00', type=0x0800) # 14
 p = Ether(src='01:00:5e:00:00:00', dst='01:00:5e:00:00:00') / IP() / UDP(sport=12345, dport=60004) / (b'\x00' * 68) / (b'\x11' * 50) 
 
 hexdump(p)
-print(len(p))
+# print(len(p))
 
 # Write the packet to the pktgen buffer
 # skip the first 6 bytes for pktgen header

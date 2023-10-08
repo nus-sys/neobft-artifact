@@ -51,28 +51,6 @@ header udp_h {
 	bit<16> checksum;
 }
 
-// header bft_h {
-// 	bit<32> legacy;
-// 	bit<8> pad0;	// signalling
-// 	bit<8> sess_num;
-// 	bit<8> pad1;	// signalling
-// 	bit<8> shard_num;
-// 	bit<32> msg_num;
-// }
-
-// deprecated
-// header bft_h {
-// 	bit<32> legacy;
-// 	bit<16> sess_num;
-// 	bit<16> shard_num;	// temporarily used for digest
-// 	bit<32> msg_num;
-// 	bit<8> pad0;	// signalling
-// 	bit<8> pad1;	// signalling
-// 	bit<8> pad2;	// intentionally left blank
-// 	bit<8> pad3;	// intentionally left blank
-// 	bit<32> digest;	
-// }
-
 header bft_h {
 	// start: 32 bytes unused
 	bit<32> unused0;
@@ -95,20 +73,6 @@ header bft_h {
 	// 1 byte session number
 	bit<8> 	sess_num;
 }
-
-// header digest_h {
-// 	bit<32> d_0;
-// 	bit<32> d_1;
-// 	bit<32> d_2;
-// 	bit<32> d_3;
-// 	bit<32> d_4;
-// 	bit<32> d_5;
-// }
-
-// header s_digest_h {
-// 	bit<32> d_0;
-// 	bit<32> d_1;
-// }
 
 header sip_inout_h {
     bit<32> m_0; 

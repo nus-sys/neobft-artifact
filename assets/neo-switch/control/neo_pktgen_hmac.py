@@ -1,8 +1,10 @@
+# THIS IS PYTHON 2
 from scapy.all import *
 
-eth = Ether(src='01:00:5e:00:00:00', dst='01:00:5e:00:00:00', type=0x88d5) # 14
-p = eth / (b'\x00' * 50)
-
+# eth = Ether(src='01:00:5e:00:00:00', dst='01:00:5e:00:00:00') # 14
+# p = eth / (b'\x00' * 50)
+p = Ether(src='01:00:5e:00:00:00', dst='01:00:5e:00:00:00') / IP() / UDP(dport=60004)
+p = p / (b'\x00' * 50)
 hexdump(p)
 
 # Write the packet to the pktgen buffer
@@ -25,7 +27,6 @@ app_cfg.timer = 13 # 16 ports @ 76.24Mpps # 97-98%
 app_cfg.src_port = 68   # pipe local src port
 app_cfg.buffer_offset = 0
 app_cfg.length = len(p) - 6
-
 # configure app id 1 with the app config
 pktgen.cfg_app(1, app_cfg)
 conn_mgr.complete_operations()
