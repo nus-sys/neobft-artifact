@@ -1,8 +1,11 @@
-use std::time::Duration;
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
+use hmac::{Hmac, Mac};
+use k256::{ecdsa::SigningKey, sha2::Sha256};
 use serde::Serialize;
 
 pub mod crypto;
+pub mod ordered_multicast;
 pub mod tokio;
 
 pub type ReplicaIndex = u8;
@@ -85,4 +88,50 @@ pub trait Receivers {
     fn handle_loopback(&mut self, receiver: Host, message: Self::Message);
 
     fn on_timer(&mut self, receiver: Host, id: TimerId);
+}
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub hosts: HashMap<Host, ConfigHost>,
+    pub remotes: HashMap<SocketAddr, Host>,
+    pub hmac: Hmac<Sha256>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfigHost {
+    pub addr: SocketAddr,
+    pub signing_key: Option<SigningKey>,
+}
+
+impl Config {
+    pub fn new(addrs: HashMap<Host, SocketAddr>) -> Self {
+        let remotes = HashMap::from_iter(addrs.iter().map(|(&host, &addr)| (addr, host)));
+        assert_eq!(remotes.len(), addrs.len());
+        let hosts = HashMap::from_iter(addrs.into_iter().map(|(host, addr)| {
+            (
+                host,
+                ConfigHost {
+                    addr,
+                    signing_key: match host {
+                        Host::Client(_) => None,
+                        Host::Replica(index) => Some(Self::k256(index)),
+                    },
+                },
+            )
+        }));
+        Self {
+            hosts,
+            remotes,
+            // simplified symmetrical keys setup
+            // also reduce client-side overhead a little bit by only need to sign once for broadcast
+            hmac: Hmac::new_from_slice("shared".as_bytes()).unwrap(),
+        }
+    }
+
+    fn k256(index: ReplicaIndex) -> SigningKey {
+        let k = format!("replica-{index}");
+        let mut buf = [0; 32];
+        buf[..k.as_bytes().len()].copy_from_slice(k.as_bytes());
+        SigningKey::from_slice(&buf).unwrap()
+    }
 }

@@ -8,10 +8,7 @@ use std::{
 use crate::{
     client::run_benchmark,
     common::set_affinity,
-    context::{
-        tokio::{Config, Dispatch},
-        Host,
-    },
+    context::{tokio::Dispatch, Config, Host},
 };
 
 use axum::{

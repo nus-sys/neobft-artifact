@@ -8,7 +8,7 @@ use k256::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{tokio::Config, Host, ReplicaIndex};
+use super::{Config, Host, ReplicaIndex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Signed<M> {
@@ -48,6 +48,26 @@ pub trait DigestHash {
     fn hash(&self, hasher: &mut Hasher);
 }
 
+impl Hasher {
+    pub fn sha256(message: &impl DigestHash) -> Sha256 {
+        let mut hasher = Self::Sha256(Sha256::new());
+        message.hash(&mut hasher);
+        let Self::Sha256(digest) = hasher else {
+            unreachable!()
+        };
+        digest
+    }
+
+    pub fn hmac(message: &impl DigestHash, hmac: Hmac<Sha256>) -> [u8; 32] {
+        let mut hasher = Self::Hmac(hmac);
+        message.hash(&mut hasher);
+        let Self::Hmac(hmac) = hasher else {
+            unreachable!()
+        };
+        hmac.finalize().into_bytes().into()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Signer {
     pub signing_key: Option<SigningKey>,
@@ -59,11 +79,7 @@ impl Signer {
     where
         M: DigestHash,
     {
-        let mut hasher = Hasher::Sha256(Sha256::new());
-        message.hash(&mut hasher);
-        let Hasher::Sha256(digest) = hasher else {
-            unreachable!()
-        };
+        let digest = Hasher::sha256(&message);
         Signed {
             inner: message,
             signature: Signature::K256(self.signing_key.as_ref().unwrap().sign_digest(digest)),
@@ -74,14 +90,9 @@ impl Signer {
     where
         M: DigestHash,
     {
-        let mut hasher = Hasher::Hmac(self.hmac.clone());
-        message.hash(&mut hasher);
-        let Hasher::Hmac(hmac) = hasher else {
-            unreachable!()
-        };
         Signed {
+            signature: Signature::Hmac(Hasher::hmac(&message, self.hmac.clone())),
             inner: message,
-            signature: Signature::Hmac(hmac.finalize().into_bytes().into()),
         }
     }
 }
@@ -145,17 +156,12 @@ impl Verifier {
         match (self, &message.signature) {
             (Self::Nop, _) => Ok(()),
             (Self::Standard(_), Signature::Plain) => unimplemented!(),
-            (Self::Standard(verifier), Signature::K256(signature)) => {
-                let mut hasher = Hasher::Sha256(Sha256::new());
-                message.inner.hash(&mut hasher);
-                let Hasher::Sha256(digest) = hasher else {
-                    unreachable!()
-                };
-                verifier.verifying_keys[&index.into().unwrap()]
-                    .verify_digest(digest, signature)
-                    .map_err(|_| Invalid::Public)
-            }
+            (Self::Standard(verifier), Signature::K256(signature)) => verifier.verifying_keys
+                [&index.into().unwrap()]
+                .verify_digest(Hasher::sha256(&message.inner), signature)
+                .map_err(|_| Invalid::Public),
             (Self::Standard(verifier), Signature::Hmac(code)) => {
+                // well...
                 let mut hasher = Hasher::Hmac(verifier.hmac.clone());
                 message.inner.hash(&mut hasher);
                 let Hasher::Hmac(hmac) = hasher else {

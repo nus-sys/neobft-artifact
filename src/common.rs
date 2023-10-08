@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::Duration};
 
-use k256::sha2::{Digest, Sha256};
+use k256::sha2::Digest;
 use nix::{
     sched::{sched_setaffinity, CpuSet},
     unistd::Pid,
@@ -78,12 +78,7 @@ impl DigestHash for Block {
 
 impl Block {
     pub fn digest(&self) -> BlockDigest {
-        let mut hasher = Hasher::Sha256(Sha256::new());
-        self.hash(&mut hasher);
-        let Hasher::Sha256(digest) = hasher else {
-            unreachable!()
-        };
-        digest.finalize().into()
+        Hasher::sha256(self).finalize().into()
     }
 }
 

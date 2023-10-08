@@ -6,8 +6,6 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use bincode::Options;
-use hmac::{Hmac, Mac};
-use k256::{ecdsa::SigningKey, sha2::Sha256};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{net::UdpSocket, runtime::Handle, task::JoinHandle};
 use tokio_util::bytes::Bytes;
@@ -16,54 +14,8 @@ use crate::context::crypto::Verifier;
 
 use super::{
     crypto::{Sign, Signer, Verify},
-    Host, Receivers, ReplicaIndex, To,
+    Config, Host, Receivers, To,
 };
-
-#[derive(Debug, Clone)]
-pub struct Config {
-    pub hosts: HashMap<Host, ConfigHost>,
-    pub remotes: HashMap<SocketAddr, Host>,
-    pub hmac: Hmac<Sha256>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ConfigHost {
-    pub addr: SocketAddr,
-    pub signing_key: Option<SigningKey>,
-}
-
-impl Config {
-    pub fn new(addrs: HashMap<Host, SocketAddr>) -> Self {
-        let remotes = HashMap::from_iter(addrs.iter().map(|(&host, &addr)| (addr, host)));
-        assert_eq!(remotes.len(), addrs.len());
-        let hosts = HashMap::from_iter(addrs.into_iter().map(|(host, addr)| {
-            (
-                host,
-                ConfigHost {
-                    addr,
-                    signing_key: match host {
-                        Host::Client(_) => None,
-                        Host::Replica(index) => Some(Self::k256(index)),
-                    },
-                },
-            )
-        }));
-        Self {
-            hosts,
-            remotes,
-            // simplified symmetrical keys setup
-            // also reduce client-side overhead a little bit by only need to sign once for broadcast
-            hmac: Hmac::new_from_slice("shared".as_bytes()).unwrap(),
-        }
-    }
-
-    fn k256(index: ReplicaIndex) -> SigningKey {
-        let k = format!("replica-{index}");
-        let mut buf = [0; 32];
-        buf[..k.as_bytes().len()].copy_from_slice(k.as_bytes());
-        SigningKey::from_slice(&buf).unwrap()
-    }
-}
 
 #[derive(Debug, Clone)]
 enum Event {

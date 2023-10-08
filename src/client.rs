@@ -13,8 +13,8 @@ use crate::{
     common::set_affinity,
     context::{
         crypto::Verify,
-        tokio::{Config, Dispatch, DispatchHandle},
-        ClientIndex, Host,
+        tokio::{Dispatch, DispatchHandle},
+        ClientIndex, Config, Host,
     },
 };
 
