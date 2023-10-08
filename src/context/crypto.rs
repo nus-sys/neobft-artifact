@@ -57,7 +57,7 @@ impl Hasher {
 
 impl std::hash::Hasher for Hasher {
     fn write(&mut self, buf: &[u8]) {
-        self.update(&buf)
+        self.update(buf)
     }
 
     fn finish(&self) -> u64 {
@@ -69,6 +69,14 @@ pub trait DigestHash {
     fn hash(&self, hasher: &mut impl std::hash::Hasher);
 }
 
+impl<T: DigestHash> DigestHash for [T] {
+    fn hash(&self, hasher: &mut impl std::hash::Hasher) {
+        for item in self {
+            item.hash(hasher)
+        }
+    }
+}
+
 impl Hasher {
     pub fn sha256(message: &impl DigestHash) -> Sha256 {
         let mut hasher = Self::Sha256(Sha256::new());
@@ -77,6 +85,16 @@ impl Hasher {
             unreachable!()
         };
         digest
+    }
+
+    pub fn sha256_update(message: &impl DigestHash, digest: &mut Sha256) {
+        let mut hasher = Self::Sha256(digest.clone());
+        message.hash(&mut hasher);
+        if let Self::Sha256(new_digest) = hasher {
+            *digest = new_digest
+        } else {
+            unreachable!()
+        };
     }
 
     pub fn hmac(message: &impl DigestHash, hmac: Hmac<Sha256>) -> [u8; 32] {

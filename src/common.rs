@@ -69,9 +69,7 @@ pub struct Block {
 
 impl DigestHash for Block {
     fn hash(&self, hasher: &mut impl std::hash::Hasher) {
-        for request in &self.requests {
-            request.hash(hasher)
-        }
+        self.requests.hash(hasher);
         hasher.write(&self.parent_digest)
     }
 }

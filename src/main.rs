@@ -121,6 +121,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                                 dispatch.register(Host::Replica(replica.index)),
                                 replica.index,
                                 App::Null,
+                                true,
                             );
                             dispatch.enable_ordered_multicast().run(&mut replica)
                         }

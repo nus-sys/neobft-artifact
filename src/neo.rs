@@ -1,16 +1,18 @@
 use std::{
     collections::HashMap,
+    ops::RangeInclusive,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
+use k256::sha2::{Digest, Sha256};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     client::BoxedConsume,
     common::{Request, Timer},
     context::{
-        crypto::{DigestHash, Sign, Signed, Verify},
+        crypto::{DigestHash, Hasher, Sign, Signed, Verify},
         ordered_multicast::OrderedMulticast,
         ClientIndex, Host, OrderedMulticastReceivers, Receivers, ReplicaIndex, To,
     },
@@ -21,6 +23,7 @@ use crate::{
 pub enum Message {
     Request(OrderedMulticast<Request>),
     Reply(Signed<Reply>),
+    Confirm(Signed<Confirm>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +32,13 @@ pub struct Reply {
     result: Vec<u8>,
     epoch_num: u32,
     seq_num: u32,
+    replica_index: ReplicaIndex,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Confirm {
+    digest: [u8; 32],
+    op_nums: RangeInclusive<u32>,
     replica_index: ReplicaIndex,
 }
 
@@ -138,10 +148,24 @@ pub struct Replica {
     requests: Vec<OrderedMulticast<Request>>,
     replies: HashMap<ClientIndex, Reply>,
     app: App,
+
+    confirm: bool,
+    confirmed_num: u32,
+    confirms: HashMap<ReplicaIndex, u32>,
+    // TODO confirm as certificates
+    reordering_confirms1: HashMap<(ReplicaIndex, u32), Signed<Confirm>>,
+    reordering_confirms2: HashMap<u32, Vec<Signed<Confirm>>>,
 }
 
 impl Replica {
-    pub fn new(context: Context<Message>, index: ReplicaIndex, app: App) -> Self {
+    pub fn new(context: Context<Message>, index: ReplicaIndex, app: App, confirm: bool) -> Self {
+        let confirmed_nums = if confirm {
+            (0..context.config().num_replica)
+                .map(|index| (index as ReplicaIndex, 0))
+                .collect()
+        } else {
+            Default::default()
+        };
         Self {
             context,
             index,
@@ -150,33 +174,53 @@ impl Replica {
             requests: Default::default(),
             replies: Default::default(),
             app,
+            confirm,
+            confirmed_num: 0,
+            confirms: confirmed_nums,
+            reordering_confirms1: Default::default(),
+            reordering_confirms2: Default::default(),
         }
+    }
+}
+
+struct I<'a>(&'a [OrderedMulticast<Request>], Option<u32>);
+
+impl std::ops::Index<u32> for I<'_> {
+    type Output = OrderedMulticast<Request>;
+
+    fn index(&self, index: u32) -> &Self::Output {
+        &self.0[(index - 1 - self.1.unwrap()) as usize]
+    }
+}
+
+impl std::ops::Index<RangeInclusive<u32>> for I<'_> {
+    type Output = [OrderedMulticast<Request>];
+
+    fn index(&self, index: RangeInclusive<u32>) -> &Self::Output {
+        &self.0[(*index.start() - 1 - self.1.unwrap()) as usize
+            ..=(*index.end() - 1 - self.1.unwrap()) as usize]
     }
 }
 
 impl Receivers for Replica {
     type Message = Message;
 
-    fn handle(&mut self, _: Host, _: Host, message: Self::Message) {
-        let Message::Request(request) = message else {
-            unimplemented!()
+    fn handle(&mut self, receiver: Host, remote: Host, message: Self::Message) {
+        match (receiver, message) {
+            (Host::Multicast, Message::Request(message)) => self.handle_request(remote, message),
+            (Host::Replica(_), Message::Confirm(message)) => self.handle_confirm(remote, message),
+            _ => unimplemented!(),
+        }
+    }
+
+    fn handle_loopback(&mut self, receiver: Host, message: Self::Message) {
+        assert_eq!(receiver, Host::Replica(self.index));
+        let Message::Confirm(confirm) = message else {
+            unreachable!()
         };
-        // Jialin's trick to avoid resetting switch for every run
-        let op_num = request.seq_num - *self.seq_num_offset.get_or_insert(request.seq_num) + 1;
-        let next_op_num = (self.requests.len() + 1) as _;
-        assert!(op_num >= next_op_num);
-        if op_num != next_op_num {
-            self.reordering_requests.insert(op_num, request);
-            assert!(self.reordering_requests.len() < 100);
-            return;
-        }
-        self.do_commit(request);
-        while let Some(request) = {
-            let next_op_num = (self.requests.len() - 1) as _;
-            self.reordering_requests.remove(&next_op_num)
-        } {
-            self.do_commit(request)
-        }
+        let evicted = self.confirms.insert(self.index, *confirm.op_nums.end());
+        assert_eq!(evicted, Some(*confirm.op_nums.start()));
+        self.do_update_confirm_num()
     }
 
     fn on_timer(&mut self, _: Host, _: crate::context::TimerId) {
@@ -189,9 +233,90 @@ impl OrderedMulticastReceivers for Replica {
 }
 
 impl Replica {
-    fn do_commit(&mut self, request: OrderedMulticast<Request>) {
-        self.requests.push(request);
-        let request = self.requests.last().unwrap();
+    fn handle_request(&mut self, _remote: Host, message: OrderedMulticast<Request>) {
+        // Jialin's trick to avoid resetting switch for every run
+        let op_num = message.seq_num - *self.seq_num_offset.get_or_insert(message.seq_num) + 1;
+        let next_op_num = (self.requests.len() + 1) as _;
+        assert!(op_num >= next_op_num);
+        if op_num != next_op_num {
+            self.reordering_requests.insert(op_num, message);
+            assert!(self.reordering_requests.len() < 100);
+            return;
+        }
+
+        if !self.confirm {
+            self.requests.push(message);
+            self.do_commit(self.requests.len() as _);
+            while let Some(request) = {
+                let next_op_num = (self.requests.len() - 1) as _;
+                self.reordering_requests.remove(&next_op_num)
+            } {
+                self.requests.push(request);
+                self.do_commit(self.requests.len() as _)
+            }
+        } else {
+            self.requests.push(message);
+            if let Some(confirms) = self
+                .reordering_confirms2
+                .remove(&(self.requests.len() as _))
+            {
+                for confirm in confirms {
+                    self.do_confirm2(confirm)
+                }
+            }
+            while let Some(request) = {
+                let next_op_num = (self.requests.len() - 1) as _;
+                self.reordering_requests.remove(&next_op_num)
+            } {
+                self.requests.push(request);
+                if let Some(confirms) = self
+                    .reordering_confirms2
+                    .remove(&(self.requests.len() as _))
+                {
+                    for confirm in confirms {
+                        self.do_confirm2(confirm)
+                    }
+                }
+            }
+
+            if self.context.idle_hint() {
+                let local_confirm_num = self.confirms[&self.index];
+                let op_nums = local_confirm_num + 1..=self.requests.len() as u32;
+                let mut digest = Sha256::new();
+                for request in &I(&self.requests, self.seq_num_offset)[op_nums.clone()] {
+                    Hasher::sha256_update(&request.inner, &mut digest);
+                }
+                let confirm = Confirm {
+                    digest: digest.finalize().into(),
+                    op_nums,
+                    replica_index: self.index,
+                };
+                self.context.send(To::AllReplicaWithLoopback, confirm)
+            }
+        }
+    }
+
+    fn handle_confirm(&mut self, _remote: Host, message: Signed<Confirm>) {
+        assert!(self.confirm);
+        let confirmed_num = self.confirms[&message.replica_index];
+        assert!(*message.op_nums.start() > confirmed_num);
+        if *message.op_nums.start() != confirmed_num + 1 {
+            self.reordering_confirms1
+                .insert((message.replica_index, *message.op_nums.start()), message);
+            return;
+        }
+        let index = message.replica_index;
+        self.do_confirm1(message);
+        while let Some(message) = self
+            .reordering_confirms1
+            .remove(&(index, self.confirms[&index] + 1))
+        {
+            self.do_confirm1(message)
+        }
+    }
+
+    fn do_commit(&mut self, op_num: u32) {
+        let request = &I(&self.requests, self.seq_num_offset)[op_num];
         match self.replies.get(&request.client_index) {
             Some(reply) if reply.request_num > request.request_num => return,
             Some(reply) if reply.request_num == request.request_num => {
@@ -209,6 +334,41 @@ impl Replica {
             replica_index: self.index,
         };
         self.context.send(To::client(request.client_index), reply)
+    }
+
+    fn do_confirm1(&mut self, message: Signed<Confirm>) {
+        if *message.op_nums.end() > self.requests.len() as u32 {
+            self.reordering_confirms2
+                .entry(*message.op_nums.end())
+                .or_default()
+                .push(message);
+            return;
+        }
+        self.do_confirm2(message)
+    }
+
+    fn do_confirm2(&mut self, message: Signed<Confirm>) {
+        let mut local_digest = Sha256::new();
+        for request in &I(&self.requests, self.seq_num_offset)[message.op_nums.clone()] {
+            Hasher::sha256_update(&request.inner, &mut local_digest)
+        }
+        assert_eq!(<[_; 32]>::from(local_digest.finalize()), message.digest);
+        self.confirms
+            .insert(message.replica_index, *message.op_nums.end());
+        self.do_update_confirm_num()
+    }
+
+    fn do_update_confirm_num(&mut self) {
+        let mut confirmed_nums = Vec::from_iter(self.confirms.values().copied());
+        confirmed_nums.sort_unstable();
+        let new_confirmed_num = confirmed_nums[self.context.config().num_faulty];
+        assert!(new_confirmed_num >= self.confirmed_num);
+        if new_confirmed_num > self.confirmed_num {
+            for op_num in self.confirmed_num + 1..=new_confirmed_num {
+                self.do_commit(op_num)
+            }
+            self.confirmed_num = new_confirmed_num;
+        }
     }
 }
 
@@ -228,9 +388,24 @@ impl DigestHash for Reply {
     }
 }
 
+impl DigestHash for Confirm {
+    fn hash(&self, hasher: &mut impl std::hash::Hasher) {
+        hasher.write(&self.digest);
+        hasher.write_u32(*self.op_nums.start());
+        hasher.write_u32(*self.op_nums.end());
+        hasher.write_u8(self.replica_index)
+    }
+}
+
 impl Sign<Reply> for Message {
     fn sign(message: Reply, signer: &crate::context::crypto::Signer) -> Self {
         Message::Reply(signer.sign_private(message))
+    }
+}
+
+impl Sign<Confirm> for Message {
+    fn sign(message: Confirm, signer: &crate::context::crypto::Signer) -> Self {
+        Message::Confirm(signer.sign_public(message))
     }
 }
 
@@ -242,6 +417,7 @@ impl Verify for Message {
         match self {
             Self::Request(message) => verifier.verify_ordered_multicast(message),
             Self::Reply(message) => verifier.verify(message, message.replica_index),
+            Self::Confirm(message) => verifier.verify(message, message.replica_index),
         }
     }
 }
