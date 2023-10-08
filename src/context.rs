@@ -23,6 +23,7 @@ pub enum Context<M> {
 pub enum Host {
     Client(ClientIndex),
     Replica(ReplicaIndex),
+    Multicast,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -114,10 +115,11 @@ pub trait Receivers {
     fn on_timer(&mut self, receiver: Host, id: TimerId);
 }
 
-pub trait OrderedMulticastReceivers {
+pub trait OrderedMulticastReceivers
+where
+    Self: Receivers,
+{
     type Message;
-
-    fn handle(&mut self, remote: Host, message: OrderedMulticast<Self::Message>);
 }
 
 #[derive(Debug, Clone)]
@@ -150,6 +152,7 @@ impl Config {
                     signing_key = Some(Self::k256(index));
                     num_replica += 1;
                 }
+                Host::Multicast => unimplemented!(),
             };
             hosts.insert(host, ConfigHost { addr, signing_key });
         }

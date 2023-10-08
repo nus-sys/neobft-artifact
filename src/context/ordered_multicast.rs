@@ -43,7 +43,7 @@ impl<M> std::ops::Deref for OrderedMulticast<M> {
 
 #[derive(Debug, Clone)]
 pub enum Variant {
-    Unimplemented,
+    Unreachable,
     HalfSipHash(HalfSipHash),
     K256,
 }
@@ -67,7 +67,7 @@ impl Variant {
         let mut seq_num = [0; 4];
         seq_num.copy_from_slice(&buf[0..4]);
         let signature = match self {
-            Self::Unimplemented => unimplemented!(),
+            Self::Unreachable => unreachable!(),
             Self::HalfSipHash(_) => {
                 let mut codes = [[0; 4]; 4];
                 codes[0].copy_from_slice(&buf[4..8]);
@@ -96,7 +96,7 @@ impl Variant {
     {
         let digest = <[_; 32]>::from(Hasher::sha256(&**message).finalize());
         match (self, message.signature) {
-            (Self::Unimplemented, _) => unimplemented!(),
+            (Self::Unreachable, _) => unreachable!(),
             (Self::HalfSipHash(variant), OrderedMulticastSignature::HalfSipHash(codes)) => {
                 // TODO
                 if digest == [0; 32] {

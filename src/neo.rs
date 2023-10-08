@@ -10,9 +10,9 @@ use crate::{
     client::BoxedConsume,
     common::{Request, Timer},
     context::{
-        crypto::{DigestHash, Sign, Signed},
+        crypto::{DigestHash, Sign, Signed, Verify},
         ordered_multicast::OrderedMulticast,
-        ClientIndex, Host, Receivers, ReplicaIndex, To,
+        ClientIndex, Host, OrderedMulticastReceivers, Receivers, ReplicaIndex, To,
     },
     App, Context,
 };
@@ -99,7 +99,9 @@ impl crate::Client for Client {
         let Some(invoke) = &mut shared.invoke else {
             return;
         };
-        invoke.replies.insert(reply.replica_index, Reply::clone(&reply));
+        invoke
+            .replies
+            .insert(reply.replica_index, Reply::clone(&reply));
         let incoming_reply = reply;
         if invoke
             .replies
@@ -155,9 +157,7 @@ impl Replica {
 impl Receivers for Replica {
     type Message = Message;
 
-    fn handle(&mut self, receiver: Host, _: Host, message: Self::Message) {
-        assert_eq!(receiver, Host::Replica(self.index));
-
+    fn handle(&mut self, _: Host, _: Host, message: Self::Message) {
         let Message::Request(request) = message else {
             unimplemented!()
         };
@@ -181,6 +181,10 @@ impl Receivers for Replica {
     fn on_timer(&mut self, _: Host, _: crate::context::TimerId) {
         unreachable!()
     }
+}
+
+impl OrderedMulticastReceivers for Replica {
+    type Message = Request;
 }
 
 impl Replica {
@@ -226,5 +230,17 @@ impl DigestHash for Reply {
 impl Sign<Reply> for Message {
     fn sign(message: Reply, signer: &crate::context::crypto::Signer) -> Self {
         Message::Reply(signer.sign_private(message))
+    }
+}
+
+impl Verify for Message {
+    fn verify(
+        &self,
+        verifier: &crate::context::crypto::Verifier,
+    ) -> Result<(), crate::context::crypto::Invalid> {
+        match self {
+            Self::Request(message) => verifier.verify_ordered_multicast(message),
+            Self::Reply(message) => verifier.verify(message, message.replica_index),
+        }
     }
 }

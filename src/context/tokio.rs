@@ -111,16 +111,22 @@ pub struct Dispatch {
     config: Arc<Config>,
     runtime: Handle,
     verifier: Verifier,
-    variant: Variant,
+    variant: Arc<Variant>,
     event: (flume::Sender<Event>, flume::Receiver<Event>),
     rdv_event: (flume::Sender<Event>, flume::Receiver<Event>),
 }
 
 impl Dispatch {
-    pub fn new(config: impl Into<Arc<Config>>, runtime: Handle, verify: bool) -> Self {
+    pub fn new(
+        config: impl Into<Arc<Config>>,
+        runtime: Handle,
+        verify: bool,
+        variant: impl Into<Arc<Variant>>,
+    ) -> Self {
         let config = config.into();
+        let variant = variant.into();
         let verifier = if verify {
-            Verifier::new_standard(&config)
+            Verifier::new_standard(&config, variant.clone())
         } else {
             Verifier::Nop
         };
@@ -128,7 +134,7 @@ impl Dispatch {
             config,
             runtime,
             verifier,
-            variant: Variant::Unimplemented,
+            variant,
             event: flume::unbounded(),
             rdv_event: flume::bounded(0),
         }
@@ -175,11 +181,8 @@ impl Dispatch {
 }
 
 impl Dispatch {
-    fn run_internal<R, M, N>(
-        &self,
-        receivers: &mut R,
-        handle_ordered_multicast: impl Fn(&mut R, Host, OrderedMulticast<N>),
-    ) where
+    fn run_internal<R, M, N>(&self, receivers: &mut R, into: impl Fn(OrderedMulticast<N>) -> M)
+    where
         R: Receivers<Message = M>,
         M: DeserializeOwned + Verify,
         N: DeserializeOwned + DigestHash,
@@ -207,9 +210,9 @@ impl Dispatch {
                     receivers.handle_loopback(receiver, message)
                 }
                 Event::OrderedMulticastMessage(remote, message) => {
-                    let message = self.variant.deserialize(message);
-                    self.variant.verify(&message).unwrap();
-                    handle_ordered_multicast(receivers, remote, message)
+                    let message = into(self.variant.deserialize(message));
+                    message.verify(&self.verifier).unwrap();
+                    receivers.handle(Host::Multicast, remote, message)
                 }
                 Event::Timer(receiver, id) => {
                     receivers.on_timer(receiver, super::TimerId::Tokio(id))
@@ -229,7 +232,7 @@ impl Dispatch {
                 unreachable!()
             }
         }
-        self.run_internal::<_, _, O>(receivers, |_, _, _| unimplemented!())
+        self.run_internal::<_, _, O>(receivers, |_| unimplemented!())
     }
 }
 
@@ -275,8 +278,9 @@ impl OrderedMulticastDispatch {
     ) where
         M: DeserializeOwned + Verify,
         N: DeserializeOwned + DigestHash,
+        OrderedMulticast<N>: Into<M>,
     {
-        self.run_internal(receivers, OrderedMulticastReceivers::handle)
+        self.run_internal(receivers, Into::into)
     }
 }
 
@@ -333,7 +337,12 @@ mod tests {
                 .collect(),
             0,
         );
-        let dispatch = Dispatch::new(config, runtime.handle().clone(), false);
+        let dispatch = Dispatch::new(
+            config,
+            runtime.handle().clone(),
+            false,
+            Variant::Unreachable,
+        );
 
         #[derive(Serialize, Deserialize)]
         struct M;

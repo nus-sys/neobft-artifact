@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use hmac::{Hmac, Mac};
 use k256::{
@@ -8,7 +8,10 @@ use k256::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{Config, Host, ReplicaIndex};
+use super::{
+    ordered_multicast::{OrderedMulticast, Variant},
+    Config, Host, ReplicaIndex,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Signed<M> {
@@ -115,6 +118,7 @@ pub enum Verifier {
 pub struct VerifierStandard {
     verifying_keys: HashMap<ReplicaIndex, VerifyingKey>,
     hmac: Hmac<Sha256>,
+    variant: Arc<Variant>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -132,7 +136,7 @@ impl std::fmt::Display for Invalid {
 impl std::error::Error for Invalid {}
 
 impl Verifier {
-    pub fn new_standard(config: &Config) -> Self {
+    pub fn new_standard(config: &Config, variant: Arc<Variant>) -> Self {
         let verifying_keys = config
             .hosts
             .iter()
@@ -150,6 +154,7 @@ impl Verifier {
         Self::Standard(Box::new(VerifierStandard {
             verifying_keys,
             hmac: config.hmac.clone(),
+            variant,
         }))
     }
 
@@ -177,6 +182,16 @@ impl Verifier {
                 };
                 hmac.verify(code.into()).map_err(|_| Invalid::Private)
             }
+        }
+    }
+
+    pub fn verify_ordered_multicast<M>(&self, message: &OrderedMulticast<M>) -> Result<(), Invalid>
+    where
+        M: DigestHash,
+    {
+        match self {
+            Self::Nop => Ok(()),
+            Self::Standard(verifier) => verifier.variant.verify(message),
         }
     }
 }

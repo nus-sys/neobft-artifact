@@ -7,16 +7,40 @@ use tokio_util::sync::CancellationToken;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let client_addrs =
-        Vec::from_iter((0..100).map(|index| SocketAddr::from(([10, 0, 0, 10], 20000 + index))));
+    let client_addrs = (0..).map(|index| SocketAddr::from(([10, 0, 0, 10], 20000 + index)));
     let replica_addrs = vec![
-        SocketAddr::from(([10, 0, 0, 1], 10000)), //
+        SocketAddr::from(([10, 0, 0, 1], 10000)),
+        SocketAddr::from(([10, 0, 0, 2], 10000)),
+        SocketAddr::from(([10, 0, 0, 3], 10000)),
+        SocketAddr::from(([10, 0, 0, 4], 10000)),
     ];
 
     let client_host = "nsl-node10.d2";
+    let num_client_host = 1;
     let replica_hosts = [
-        "nsl-node1.d2", //
+        "nsl-node1.d2",
+        "nsl-node2.d2",
+        "nsl-node3.d2",
+        "nsl-node4.d2",
     ];
+
+    let benchmark = BenchmarkClient {
+        num_group: 5,
+        num_client: 20,
+        duration: Duration::from_secs(10),
+    };
+    let client_addrs = Vec::from_iter(
+        client_addrs.take(benchmark.num_group * benchmark.num_client * num_client_host),
+    );
+
+    let mode = "unreplicated";
+    let task = |role| Task {
+        mode: String::from(mode),
+        client_addrs: client_addrs.clone(),
+        replica_addrs: replica_addrs.clone(),
+        num_faulty: 0,
+        role,
+    };
 
     let cancel = CancellationToken::new();
     let hook = std::panic::take_hook();
@@ -31,34 +55,21 @@ async fn main() {
     let client = Arc::new(Client::new());
     let mut sessions = Vec::new();
     for (index, host) in replica_hosts.into_iter().enumerate() {
-        let task = Task {
-            client_addrs: client_addrs.clone(),
-            replica_addrs: replica_addrs.clone(),
-            num_faulty: 0,
-            role: Role::Replica(Replica { index: index as _ }),
-        };
+        if mode == "unreplicated" && index > 0 {
+            break;
+        }
         sessions.push(spawn(host_session(
             host,
-            task,
+            task(Role::Replica(Replica { index: index as _ })),
             client.clone(),
             cancel.clone(),
         )));
     }
 
     sleep(Duration::from_secs(1)).await;
-    let task = Task {
-        client_addrs,
-        replica_addrs,
-        num_faulty: 0,
-        role: Role::BenchmarkClient(BenchmarkClient {
-            num_group: 5,
-            num_client: 20,
-            duration: Duration::from_secs(10),
-        }),
-    };
     sessions.push(spawn(host_session(
         client_host,
-        task,
+        task(Role::BenchmarkClient(benchmark)),
         client.clone(),
         cancel.clone(),
     )));

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
-    // mode
+    pub mode: String,
     pub client_addrs: Vec<SocketAddr>,
     pub replica_addrs: Vec<SocketAddr>,
     pub num_faulty: usize,

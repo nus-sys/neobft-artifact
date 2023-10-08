@@ -14,8 +14,8 @@ use control_messages::{BenchmarkStats, Role, Task};
 use permissioned_blockchain::{
     client::run_benchmark,
     common::set_affinity,
-    context::{tokio::Dispatch, Config, Host},
-    unreplicated, App,
+    context::{ordered_multicast::Variant, tokio::Dispatch, Config, Host},
+    neo, unreplicated, App,
 };
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -51,12 +51,23 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
             *state.lock().unwrap() = AppState::BenchmarkClientRunning;
             let state = state.clone();
             tokio::task::spawn_blocking(move || {
-                let latencies = run_benchmark(
-                    dispatch_config,
-                    config.num_group,
-                    config.num_client,
-                    config.duration,
-                );
+                let latencies = match &*task.mode {
+                    "unreplicated" => run_benchmark(
+                        dispatch_config,
+                        unreplicated::Client::new,
+                        config.num_group,
+                        config.num_client,
+                        config.duration,
+                    ),
+                    "neo" => run_benchmark(
+                        dispatch_config,
+                        neo::Client::new,
+                        config.num_group,
+                        config.num_client,
+                        config.duration,
+                    ),
+                    _ => unimplemented!(),
+                };
                 *state.lock().unwrap() = AppState::BenchmarkClientFinish {
                     stats: BenchmarkStats {
                         throughput: latencies.len() as f32 / config.duration.as_secs_f32(),
@@ -77,7 +88,12 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                         .enable_all()
                         .build()
                         .unwrap();
-                    let dispatch = Dispatch::new(dispatch_config, runtime.handle().clone(), true);
+                    let dispatch = Dispatch::new(
+                        dispatch_config,
+                        runtime.handle().clone(),
+                        true,
+                        Variant::new_half_sip_hash(replica.index),
+                    );
 
                     let handle = dispatch.handle();
                     std::thread::spawn(move || {
@@ -90,10 +106,25 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                     });
 
                     set_affinity(1);
-                    assert_eq!(replica.index, 0);
-                    let mut replica =
-                        unreplicated::Replica::new(dispatch.register(Host::Replica(0)), App::Null);
-                    dispatch.run(&mut replica)
+                    match &*task.mode {
+                        "unreplicated" => {
+                            assert_eq!(replica.index, 0);
+                            let mut replica = unreplicated::Replica::new(
+                                dispatch.register(Host::Replica(0)),
+                                App::Null,
+                            );
+                            dispatch.run(&mut replica)
+                        }
+                        "neo" => {
+                            let mut replica = neo::Replica::new(
+                                dispatch.register(Host::Replica(replica.index)),
+                                replica.index,
+                                App::Null,
+                            );
+                            dispatch.enable_ordered_multicast().run(&mut replica)
+                        }
+                        _ => unimplemented!(),
+                    }
                     // TODO return stats
                 }
             });

@@ -13,9 +13,11 @@ use crate::{
     common::set_affinity,
     context::{
         crypto::Verify,
+        ordered_multicast::Variant,
         tokio::{Dispatch, DispatchHandle},
         ClientIndex, Config, Host,
     },
+    Context,
 };
 
 pub trait OnResult {
@@ -137,14 +139,19 @@ impl<C> Benchmark<C> {
     }
 }
 
-pub fn run_benchmark(
+pub fn run_benchmark<C>(
     dispatch_config: Config,
+    new_client: impl Fn(Context<C::Message>, ClientIndex) -> C,
     num_group: usize,
     num_client: usize,
     duration: Duration,
-) -> Vec<Duration> {
-    struct Group {
-        benchmark_thread: JoinHandle<Benchmark<crate::unreplicated::Client>>,
+) -> Vec<Duration>
+where
+    C: Client + Send + Sync + 'static,
+    C::Message: DeserializeOwned + Verify,
+{
+    struct Group<C> {
+        benchmark_thread: JoinHandle<Benchmark<C>>,
         runtime_thread: JoinHandle<()>,
         dispatch_thread: JoinHandle<()>,
         dispatch_handle: DispatchHandle,
@@ -158,14 +165,17 @@ pub fn run_benchmark(
                 .enable_all()
                 .build()
                 .unwrap();
-            let mut dispatch =
-                Dispatch::new(dispatch_config.clone(), runtime.handle().clone(), false);
+            let mut dispatch = Dispatch::new(
+                dispatch_config.clone(),
+                runtime.handle().clone(),
+                false,
+                Variant::Unreachable,
+            );
 
             let mut benchmark = Benchmark::new();
             for group_offset in 0..num_client {
                 let index = (group_index * num_client + group_offset) as ClientIndex;
-                let client =
-                    crate::unreplicated::Client::new(dispatch.register(Host::Client(index)), index);
+                let client = new_client(dispatch.register(Host::Client(index)), index);
                 benchmark.insert_client(index, client);
             }
 
