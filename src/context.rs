@@ -4,6 +4,8 @@ use hmac::{Hmac, Mac};
 use k256::{ecdsa::SigningKey, sha2::Sha256};
 use serde::Serialize;
 
+use self::ordered_multicast::OrderedMulticast;
+
 pub mod crypto;
 pub mod ordered_multicast;
 pub mod tokio;
@@ -90,10 +92,17 @@ pub trait Receivers {
     fn on_timer(&mut self, receiver: Host, id: TimerId);
 }
 
+pub trait OrderedMulticastReceivers {
+    type Message;
+
+    fn handle(&mut self, remote: Host, message: OrderedMulticast<Self::Message>);
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub hosts: HashMap<Host, ConfigHost>,
     pub remotes: HashMap<SocketAddr, Host>,
+    pub multicast_addr: Option<SocketAddr>,
     pub hmac: Hmac<Sha256>,
 }
 
@@ -122,6 +131,7 @@ impl Config {
         Self {
             hosts,
             remotes,
+            multicast_addr: None,
             // simplified symmetrical keys setup
             // also reduce client-side overhead a little bit by only need to sign once for broadcast
             hmac: Hmac::new_from_slice("shared".as_bytes()).unwrap(),

@@ -3,24 +3,26 @@
 //! Although supported by an asynchronous reactor, protocol code, i.e.,
 //! `impl Receivers` is still synchronous and running in a separated thread.
 
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
 use bincode::Options;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{net::UdpSocket, runtime::Handle, task::JoinHandle};
 use tokio_util::bytes::Bytes;
 
 use crate::context::crypto::Verifier;
 
 use super::{
-    crypto::{Sign, Signer, Verify},
-    Config, Host, Receivers, To,
+    crypto::{DigestHash, Sign, Signer, Verify},
+    ordered_multicast::{OrderedMulticast, Variant},
+    Config, Host, OrderedMulticastReceivers, Receivers, To,
 };
 
 #[derive(Debug, Clone)]
 enum Event {
     Message(Host, Host, Vec<u8>),
     LoopbackMessage(Host, Bytes),
+    OrderedMulticastMessage(Host, Vec<u8>),
     Timer(Host, TimerId),
     Stop,
 }
@@ -69,6 +71,13 @@ impl Context {
             .spawn(async move { socket.send_to(buf.as_ref(), addr).await.unwrap() });
     }
 
+    pub fn send_ordered_multicast(&self, message: impl Serialize + DigestHash) {
+        self.send_internal(
+            self.config.multicast_addr.unwrap(),
+            super::ordered_multicast::serialize(&message),
+        )
+    }
+
     pub fn idle_hint(&self) -> bool {
         self.event.is_empty()
     }
@@ -97,10 +106,12 @@ impl Context {
     }
 }
 
+#[derive(Debug)]
 pub struct Dispatch {
     config: Arc<Config>,
     runtime: Handle,
     verifier: Verifier,
+    variant: Variant,
     event: (flume::Sender<Event>, flume::Receiver<Event>),
     rdv_event: (flume::Sender<Event>, flume::Receiver<Event>),
 }
@@ -117,6 +128,7 @@ impl Dispatch {
             config,
             runtime,
             verifier,
+            variant: Variant::Unimplemented,
             event: flume::unbounded(),
             rdv_event: flume::bounded(0),
         }
@@ -128,6 +140,7 @@ impl Dispatch {
                 .block_on(UdpSocket::bind(self.config.hosts[&receiver].addr))
                 .unwrap(),
         );
+        socket.set_broadcast(true).unwrap();
         let context = Context {
             config: self.config.clone(),
             socket: socket.clone(),
@@ -162,9 +175,14 @@ impl Dispatch {
 }
 
 impl Dispatch {
-    pub fn run<M>(&self, receivers: &mut impl Receivers<Message = M>)
-    where
+    fn run_internal<R, M, N>(
+        &self,
+        receivers: &mut R,
+        handle_ordered_multicast: impl Fn(&mut R, Host, OrderedMulticast<N>),
+    ) where
+        R: Receivers<Message = M>,
         M: DeserializeOwned + Verify,
+        N: DeserializeOwned + DigestHash,
     {
         loop {
             let event = flume::Selector::new()
@@ -188,11 +206,77 @@ impl Dispatch {
                         .unwrap();
                     receivers.handle_loopback(receiver, message)
                 }
+                Event::OrderedMulticastMessage(remote, message) => {
+                    let message = self.variant.deserialize(message);
+                    self.variant.verify(&message).unwrap();
+                    handle_ordered_multicast(receivers, remote, message)
+                }
                 Event::Timer(receiver, id) => {
                     receivers.on_timer(receiver, super::TimerId::Tokio(id))
                 }
             }
         }
+    }
+
+    pub fn run<M>(&self, receivers: &mut impl Receivers<Message = M>)
+    where
+        M: DeserializeOwned + Verify,
+    {
+        #[derive(Deserialize)]
+        enum O {}
+        impl DigestHash for O {
+            fn hash(&self, _: &mut crate::context::crypto::Hasher) {
+                unreachable!()
+            }
+        }
+        self.run_internal::<_, _, O>(receivers, |_, _, _| unimplemented!())
+    }
+}
+
+#[derive(Debug)]
+pub struct OrderedMulticastDispatch(Dispatch);
+
+impl Deref for OrderedMulticastDispatch {
+    type Target = Dispatch;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Dispatch {
+    pub fn enable_ordered_multicast(self) -> OrderedMulticastDispatch {
+        let socket = self
+            .runtime
+            .block_on(UdpSocket::bind(self.config.multicast_addr.unwrap()))
+            .unwrap();
+        let event = self.event.0.clone();
+        let config = self.config.clone();
+        self.runtime.spawn(async move {
+            let mut buf = vec![0; 65536];
+            loop {
+                let (len, remote) = socket.recv_from(&mut buf).await.unwrap();
+                event
+                    .try_send(Event::OrderedMulticastMessage(
+                        config.remotes[&remote],
+                        buf[..len].to_vec(),
+                    ))
+                    .unwrap()
+            }
+        });
+        OrderedMulticastDispatch(self)
+    }
+}
+
+impl OrderedMulticastDispatch {
+    pub fn run<M, N>(
+        &self,
+        receivers: &mut (impl Receivers<Message = M> + OrderedMulticastReceivers<Message = N>),
+    ) where
+        M: DeserializeOwned + Verify,
+        N: DeserializeOwned + DigestHash,
+    {
+        self.run_internal(receivers, OrderedMulticastReceivers::handle)
     }
 }
 
