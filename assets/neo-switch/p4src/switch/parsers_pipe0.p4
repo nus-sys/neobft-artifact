@@ -44,6 +44,7 @@ parser TomPipe0SwitchIngressParser(
     // }
 
     state parse_bft {
+        pkt.extract(hdr.msg_num);
         pkt.extract(hdr.bft);
         transition accept;
         // transition select(hdr.bft.pad0, hdr.bft.pad1) {
@@ -123,6 +124,7 @@ parser TomPipe0SwitchEgressParser(
     }
 
     state parse_bft {
+        pkt.extract(hdr.msg_num);
         pkt.extract(hdr.bft);
         // pkt.extract(hdr.s_digest);
         transition select(hdr.bft.pad0, hdr.bft.pad1) {

@@ -3,6 +3,8 @@ struct pipe_1_header_t {
     // reserved_h reserved;
     ipv4_h ipv4;
     udp_h udp;
+
+    msg_num_h msg_num;
     bft_h bft;
 	
     sip_inout_h sip00;

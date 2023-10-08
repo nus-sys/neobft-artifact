@@ -104,7 +104,7 @@ control TomPipe0SwitchIngress(
             // stamp the packet session and message number
             if(hdr.bft.pad0 == 0 && hdr.bft.pad1 == 0) {
                 hdr.bft.sess_num = get_session.execute(0);
-                hdr.bft.msg_num = counter_update.execute(0);
+                hdr.msg_num.count = counter_update.execute(0);
 
                 // take what we need from the digest
                 // hdr.s_digest.setValid();

@@ -51,27 +51,44 @@ header udp_h {
 	bit<16> checksum;
 }
 
+// header bft_h {
+// 	// start: 32 bytes unused
+// 	bit<32> unused0;
+// 	bit<32> unused1;
+// 	bit<32> unused2;
+// 	bit<32> unused3;
+// 	bit<32> unused4;
+// 	// 8 bytes used for digest
+// 	bit<32> digest0;
+// 	bit<32> digest1;
+// 	// 4 bytes used for signalling
+// 	bit<8> 	pad0;
+// 	bit<8> 	pad1;
+// 	bit<8> 	shard_num;
+// 	bit<8> 	reserved;
+// 	// end: 32 bytes
+// 
+// 	// 4 bytes sequence number
+// 	bit<32> msg_num;
+// 	// 1 byte session number
+// 	bit<8> 	sess_num;
+// }
+
+header msg_num_h {
+	bit<32> count;
+}
+
 header bft_h {
-	// start: 32 bytes unused
-	bit<32> unused0;
-	bit<32> unused1;
-	bit<32> unused2;
-	bit<32> unused3;
-	bit<32> unused4;
-	// 8 bytes used for digest
 	bit<32> digest0;
 	bit<32> digest1;
-	// 4 bytes used for signalling
+
+	bit<8> 	shard_num;
+ 	bit<8> 	sess_num;
+
 	bit<8> 	pad0;
 	bit<8> 	pad1;
-	bit<8> 	shard_num;
-	bit<8> 	reserved;
-	// end: 32 bytes
 
-	// 4 bytes sequence number
-	bit<32> msg_num;
-	// 1 byte session number
-	bit<8> 	sess_num;
+	bit<32> unused0;
 }
 
 header sip_inout_h {

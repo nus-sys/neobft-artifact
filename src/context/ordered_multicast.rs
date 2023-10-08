@@ -10,7 +10,9 @@ use super::{
 pub fn serialize(message: &(impl Serialize + DigestHash)) -> Vec<u8> {
     let digest = Hasher::sha256(message).finalize();
     [
-        &[0; 68],
+        &[0; 20],
+        &digest[..8],
+        &[0; 40],
         &*digest,
         &bincode::options().serialize(message).unwrap(),
     ]
@@ -34,6 +36,7 @@ pub enum OrderedMulticastSignature {
 #[derive(Debug, Clone)]
 pub enum Variant {
     HalfSipHash(HalfSipHash),
+    K256,
 }
 
 #[derive(Debug, Clone)]
@@ -63,9 +66,12 @@ impl Variant {
                 codes[3].copy_from_slice(&buf[16..20]);
                 OrderedMulticastSignature::HalfSipHash(codes)
             }
+            Self::K256 => todo!(),
         };
         let mut linked = [0; 32];
-        linked.copy_from_slice(&buf[68..100]);
+        if matches!(self, Self::K256) {
+            linked.copy_from_slice(&buf[68..100]);
+        }
         OrderedMulticast {
             seq_num: u32::from_be_bytes(seq_num),
             signature,
@@ -90,6 +96,8 @@ impl Variant {
                 }
                 Ok(())
             }
+            (Self::K256, _) => todo!(),
+            // _ => unimplemented!(),
         }
     }
 }

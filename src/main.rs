@@ -5,30 +5,20 @@ use std::{
     time::Duration,
 };
 
-use crate::{
-    client::run_benchmark,
-    common::set_affinity,
-    context::{tokio::Dispatch, Config, Host},
-};
-
 use axum::{
     extract::State,
     routing::{get, post},
     Json, Router, Server,
 };
 use control_messages::{BenchmarkStats, Role, Task};
+use permissioned_blockchain::{
+    client::run_benchmark,
+    common::set_affinity,
+    context::{tokio::Dispatch, Config, Host},
+    unreplicated, App,
+};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-
-pub mod app;
-pub mod client;
-pub mod common;
-pub mod context;
-pub mod unreplicated;
-
-pub use app::App;
-pub use client::Client;
-pub use context::Context;
 
 enum AppState {
     Idle,

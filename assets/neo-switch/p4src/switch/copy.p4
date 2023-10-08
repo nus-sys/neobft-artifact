@@ -11,7 +11,7 @@ action copy_sip00() {
     // hdr.sip00.m_2 = 0;
     // hdr.sip00.m_3 = hdr.bft.digest;
     hdr.sip00.m_0 = hdr.bft.sess_num ++ hdr.bft.shard_num ++ 16w0;
-    hdr.sip00.m_1 = hdr.bft.msg_num;
+    hdr.sip00.m_1 = hdr.msg_num.count;
     hdr.sip00.m_2 = hdr.bft.digest0;
     hdr.sip00.m_3 = hdr.bft.digest1;
 }
