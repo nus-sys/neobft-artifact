@@ -183,13 +183,13 @@ impl Replica {
     }
 }
 
-struct I<'a>(&'a [OrderedMulticast<Request>], Option<u32>);
+struct I<'a>(&'a [OrderedMulticast<Request>]);
 
 impl std::ops::Index<u32> for I<'_> {
     type Output = OrderedMulticast<Request>;
 
     fn index(&self, index: u32) -> &Self::Output {
-        &self.0[(index - 1 - self.1.unwrap()) as usize]
+        &self.0[(index - 1) as usize]
     }
 }
 
@@ -197,8 +197,7 @@ impl std::ops::Index<RangeInclusive<u32>> for I<'_> {
     type Output = [OrderedMulticast<Request>];
 
     fn index(&self, index: RangeInclusive<u32>) -> &Self::Output {
-        &self.0[(*index.start() - 1 - self.1.unwrap()) as usize
-            ..=(*index.end() - 1 - self.1.unwrap()) as usize]
+        &self.0[(*index.start() - 1) as usize..=(*index.end() - 1) as usize]
     }
 }
 
@@ -211,6 +210,23 @@ impl Receivers for Replica {
             (Host::Replica(_), Message::Confirm(message)) => self.handle_confirm(remote, message),
             _ => unimplemented!(),
         }
+
+        if self.context.idle_hint() && self.confirm {
+            let local_confirm_num = self.confirms[&self.index];
+            let op_nums = local_confirm_num + 1..=self.requests.len() as u32;
+            if !op_nums.is_empty() {
+                let mut digest = Sha256::new();
+                for request in &I(&self.requests)[op_nums.clone()] {
+                    Hasher::sha256_update(&request.inner, &mut digest);
+                }
+                let confirm = Confirm {
+                    digest: digest.finalize().into(),
+                    op_nums,
+                    replica_index: self.index,
+                };
+                self.context.send(To::AllReplicaWithLoopback, confirm)
+            }
+        }
     }
 
     fn handle_loopback(&mut self, receiver: Host, message: Self::Message) {
@@ -219,7 +235,7 @@ impl Receivers for Replica {
             unreachable!()
         };
         let evicted = self.confirms.insert(self.index, *confirm.op_nums.end());
-        assert_eq!(evicted, Some(*confirm.op_nums.start()));
+        assert_eq!(evicted.unwrap() + 1, *confirm.op_nums.start());
         self.do_update_confirm_num()
     }
 
@@ -278,21 +294,6 @@ impl Replica {
                     }
                 }
             }
-
-            if self.context.idle_hint() {
-                let local_confirm_num = self.confirms[&self.index];
-                let op_nums = local_confirm_num + 1..=self.requests.len() as u32;
-                let mut digest = Sha256::new();
-                for request in &I(&self.requests, self.seq_num_offset)[op_nums.clone()] {
-                    Hasher::sha256_update(&request.inner, &mut digest);
-                }
-                let confirm = Confirm {
-                    digest: digest.finalize().into(),
-                    op_nums,
-                    replica_index: self.index,
-                };
-                self.context.send(To::AllReplicaWithLoopback, confirm)
-            }
         }
     }
 
@@ -316,7 +317,7 @@ impl Replica {
     }
 
     fn do_commit(&mut self, op_num: u32) {
-        let request = &I(&self.requests, self.seq_num_offset)[op_num];
+        let request = &I(&self.requests)[op_num];
         match self.replies.get(&request.client_index) {
             Some(reply) if reply.request_num > request.request_num => return,
             Some(reply) if reply.request_num == request.request_num => {
@@ -349,7 +350,7 @@ impl Replica {
 
     fn do_confirm2(&mut self, message: Signed<Confirm>) {
         let mut local_digest = Sha256::new();
-        for request in &I(&self.requests, self.seq_num_offset)[message.op_nums.clone()] {
+        for request in &I(&self.requests)[message.op_nums.clone()] {
             Hasher::sha256_update(&request.inner, &mut local_digest)
         }
         assert_eq!(<[_; 32]>::from(local_digest.finalize()), message.digest);

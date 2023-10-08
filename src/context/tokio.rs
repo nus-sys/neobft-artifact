@@ -67,8 +67,12 @@ impl Context {
 
     fn send_internal(&self, addr: SocketAddr, buf: impl AsRef<[u8]> + Send + Sync + 'static) {
         let socket = self.socket.clone();
-        self.runtime
-            .spawn(async move { socket.send_to(buf.as_ref(), addr).await.unwrap() });
+        self.runtime.spawn(async move {
+            socket
+                .send_to(buf.as_ref(), addr)
+                .await
+                .expect("target: {addr:?}")
+        });
     }
 
     pub fn send_ordered_multicast(&self, message: impl Serialize + DigestHash) {
