@@ -52,10 +52,10 @@ pub struct Request {
 }
 
 impl DigestHash for Request {
-    fn hash(&self, hasher: &mut Hasher) {
-        hasher.update(self.client_index.to_le_bytes());
-        hasher.update(self.request_num.to_le_bytes());
-        hasher.update(&self.op)
+    fn hash(&self, hasher: &mut impl std::hash::Hasher) {
+        hasher.write_u16(self.client_index);
+        hasher.write_u32(self.request_num);
+        hasher.write(&self.op)
     }
 }
 
@@ -68,11 +68,11 @@ pub struct Block {
 }
 
 impl DigestHash for Block {
-    fn hash(&self, hasher: &mut Hasher) {
+    fn hash(&self, hasher: &mut impl std::hash::Hasher) {
         for request in &self.requests {
             request.hash(hasher)
         }
-        hasher.update(self.parent_digest)
+        hasher.write(&self.parent_digest)
     }
 }
 

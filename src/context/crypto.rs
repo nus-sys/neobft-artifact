@@ -55,8 +55,18 @@ impl Hasher {
     }
 }
 
+impl std::hash::Hasher for Hasher {
+    fn write(&mut self, buf: &[u8]) {
+        self.update(&buf)
+    }
+
+    fn finish(&self) -> u64 {
+        unimplemented!()
+    }
+}
+
 pub trait DigestHash {
-    fn hash(&self, hasher: &mut Hasher);
+    fn hash(&self, hasher: &mut impl std::hash::Hasher);
 }
 
 impl Hasher {

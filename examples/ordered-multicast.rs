@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 struct Message(String);
 
 impl DigestHash for Message {
-    fn hash(&self, hasher: &mut permissioned_blockchain::context::crypto::Hasher) {
-        hasher.update(&self.0)
+    fn hash(&self, hasher: &mut impl std::hash::Hasher) {
+        hasher.write(self.0.as_bytes())
     }
 }
 

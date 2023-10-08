@@ -172,9 +172,9 @@ impl Receivers for Replica {
 }
 
 impl DigestHash for Reply {
-    fn hash(&self, hasher: &mut crate::context::crypto::Hasher) {
-        hasher.update(self.request_num.to_le_bytes());
-        hasher.update(&self.result)
+    fn hash(&self, hasher: &mut impl std::hash::Hasher) {
+        hasher.write_u32(self.request_num);
+        hasher.write(&self.result)
     }
 }
 

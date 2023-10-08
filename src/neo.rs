@@ -219,12 +219,12 @@ impl From<OrderedMulticast<Request>> for Message {
 }
 
 impl DigestHash for Reply {
-    fn hash(&self, hasher: &mut crate::context::crypto::Hasher) {
-        hasher.update(self.request_num.to_le_bytes());
-        hasher.update(&self.result);
-        hasher.update(self.epoch_num.to_le_bytes());
-        hasher.update(self.seq_num.to_le_bytes());
-        hasher.update(self.replica_index.to_le_bytes())
+    fn hash(&self, hasher: &mut impl std::hash::Hasher) {
+        hasher.write_u32(self.request_num);
+        hasher.write(&self.result);
+        hasher.write_u32(self.epoch_num);
+        hasher.write_u32(self.seq_num);
+        hasher.write_u8(self.replica_index)
     }
 }
 

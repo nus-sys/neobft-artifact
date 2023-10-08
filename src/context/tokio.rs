@@ -228,7 +228,7 @@ impl Dispatch {
         #[derive(Deserialize)]
         enum O {}
         impl DigestHash for O {
-            fn hash(&self, _: &mut crate::context::crypto::Hasher) {
+            fn hash(&self, _: &mut impl std::hash::Hasher) {
                 unreachable!()
             }
         }

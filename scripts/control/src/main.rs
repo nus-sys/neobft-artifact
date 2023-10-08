@@ -25,7 +25,7 @@ async fn main() {
         "nsl-node4.d2",
     ];
 
-    let mode = "unreplicated";
+    let mode = "neo";
     let benchmark = BenchmarkClient {
         num_group: 5,
         num_client: 20,
