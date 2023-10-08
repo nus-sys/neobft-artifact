@@ -44,7 +44,8 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
     for (index, addr) in task.replica_addrs.into_iter().enumerate() {
         addrs.insert(Host::Replica(index as _), addr);
     }
-    let dispatch_config = Config::new(addrs, task.num_faulty);
+    let mut dispatch_config = Config::new(addrs, task.num_faulty);
+    dispatch_config.multicast_addr = Some(task.multicast_addr);
 
     match task.role {
         Role::BenchmarkClient(config) => {

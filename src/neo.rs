@@ -167,6 +167,7 @@ impl Receivers for Replica {
         assert!(op_num >= next_op_num);
         if op_num != next_op_num {
             self.reordering_requests.insert(op_num, request);
+            assert!(self.reordering_requests.len() < 100);
             return;
         }
         self.do_commit(request);

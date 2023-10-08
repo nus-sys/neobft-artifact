@@ -90,13 +90,19 @@ impl<C> Benchmark<C> {
         C: Client,
     {
         if self.bootstrap {
-            for (&index, client) in &self.clients {
+            for (i, (&index, client)) in self.clients.iter().enumerate() {
                 let finish_sender = self.finish_sender.clone();
                 let start = Instant::now();
                 // TODO
                 client.invoke(Default::default(), move |_| {
                     finish_sender.send((index, start.elapsed())).unwrap()
                 });
+                // synchronously finish the first invocation, to avoid first-packet reordering
+                if i == 0 {
+                    self.finish_sender
+                        .send(self.finish_receiver.recv().unwrap())
+                        .unwrap()
+                }
             }
             self.bootstrap = false;
         }

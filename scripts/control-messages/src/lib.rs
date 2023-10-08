@@ -7,6 +7,7 @@ pub struct Task {
     pub mode: String,
     pub client_addrs: Vec<SocketAddr>,
     pub replica_addrs: Vec<SocketAddr>,
+    pub multicast_addr: SocketAddr,
     pub num_faulty: usize,
     pub role: Role,
 }

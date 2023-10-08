@@ -14,6 +14,7 @@ async fn main() {
         SocketAddr::from(([10, 0, 0, 3], 10000)),
         SocketAddr::from(([10, 0, 0, 4], 10000)),
     ];
+    let multicast_addr = SocketAddr::from(([10, 0, 0, 255], 60004));
 
     let client_host = "nsl-node10.d2";
     let num_client_host = 1;
@@ -24,6 +25,7 @@ async fn main() {
         "nsl-node4.d2",
     ];
 
+    let mode = "unreplicated";
     let benchmark = BenchmarkClient {
         num_group: 5,
         num_client: 20,
@@ -33,11 +35,11 @@ async fn main() {
         client_addrs.take(benchmark.num_group * benchmark.num_client * num_client_host),
     );
 
-    let mode = "unreplicated";
     let task = |role| Task {
         mode: String::from(mode),
         client_addrs: client_addrs.clone(),
         replica_addrs: replica_addrs.clone(),
+        multicast_addr,
         num_faulty: 0,
         role,
     };
