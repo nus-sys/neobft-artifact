@@ -4,7 +4,7 @@ use hmac::{Hmac, Mac};
 use k256::{ecdsa::SigningKey, sha2::Sha256};
 use serde::Serialize;
 
-use self::ordered_multicast::OrderedMulticast;
+use self::{crypto::DigestHash, ordered_multicast::OrderedMulticast};
 
 pub mod crypto;
 pub mod ordered_multicast;
@@ -13,6 +13,7 @@ pub mod tokio;
 pub type ReplicaIndex = u8;
 pub type ClientIndex = u16;
 
+#[derive(Debug)]
 pub enum Context<M> {
     Tokio(tokio::Context),
     Phantom(std::marker::PhantomData<M>),
@@ -43,12 +44,30 @@ impl To {
 }
 
 impl<M> Context<M> {
+    pub fn config(&self) -> &Config {
+        match self {
+            Self::Tokio(context) => &context.config,
+            _ => unimplemented!(),
+        }
+    }
+
     pub fn send<N>(&mut self, to: To, message: N)
     where
         M: crypto::Sign<N> + Serialize,
     {
         match self {
             Self::Tokio(context) => context.send::<M, _>(to, message),
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn send_ordered_multicast<N>(&mut self, message: N)
+    where
+        N: Serialize + DigestHash,
+        OrderedMulticast<N>: Into<M>,
+    {
+        match self {
+            Self::Tokio(context) => context.send_ordered_multicast(message),
             _ => unimplemented!(),
         }
     }
@@ -87,7 +106,10 @@ pub trait Receivers {
 
     fn handle(&mut self, receiver: Host, remote: Host, message: Self::Message);
 
-    fn handle_loopback(&mut self, receiver: Host, message: Self::Message);
+    #[allow(unused_variables)]
+    fn handle_loopback(&mut self, receiver: Host, message: Self::Message) {
+        unreachable!()
+    }
 
     fn on_timer(&mut self, receiver: Host, id: TimerId);
 }
@@ -100,6 +122,8 @@ pub trait OrderedMulticastReceivers {
 
 #[derive(Debug, Clone)]
 pub struct Config {
+    pub num_faulty: usize,
+    pub num_replica: usize,
     pub hosts: HashMap<Host, ConfigHost>,
     pub remotes: HashMap<SocketAddr, Host>,
     pub multicast_addr: Option<SocketAddr>,
@@ -113,22 +137,27 @@ pub struct ConfigHost {
 }
 
 impl Config {
-    pub fn new(addrs: HashMap<Host, SocketAddr>) -> Self {
-        let remotes = HashMap::from_iter(addrs.iter().map(|(&host, &addr)| (addr, host)));
+    pub fn new(addrs: HashMap<Host, SocketAddr>, num_faulty: usize) -> Self {
+        let mut remotes = HashMap::new();
+        let mut hosts = HashMap::new();
+        let mut num_replica = 0;
+        for (&host, &addr) in &addrs {
+            remotes.insert(addr, host);
+            let signing_key;
+            match host {
+                Host::Client(_) => signing_key = None,
+                Host::Replica(index) => {
+                    signing_key = Some(Self::k256(index));
+                    num_replica += 1;
+                }
+            };
+            hosts.insert(host, ConfigHost { addr, signing_key });
+        }
         assert_eq!(remotes.len(), addrs.len());
-        let hosts = HashMap::from_iter(addrs.into_iter().map(|(host, addr)| {
-            (
-                host,
-                ConfigHost {
-                    addr,
-                    signing_key: match host {
-                        Host::Client(_) => None,
-                        Host::Replica(index) => Some(Self::k256(index)),
-                    },
-                },
-            )
-        }));
+        assert!(num_faulty * 3 < num_replica);
         Self {
+            num_faulty,
+            num_replica,
             hosts,
             remotes,
             multicast_addr: None,

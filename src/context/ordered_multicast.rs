@@ -1,6 +1,6 @@
 use bincode::Options;
 use k256::sha2::Digest;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::{
     crypto::{DigestHash, Hasher, Invalid},
@@ -19,7 +19,7 @@ pub fn serialize(message: &(impl Serialize + DigestHash)) -> Vec<u8> {
     .concat()
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderedMulticast<M> {
     pub seq_num: u32,
     pub signature: OrderedMulticastSignature,
@@ -27,10 +27,18 @@ pub struct OrderedMulticast<M> {
     pub inner: M,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OrderedMulticastSignature {
     HalfSipHash([[u8; 4]; 4]),
     //
+}
+
+impl<M> std::ops::Deref for OrderedMulticast<M> {
+    type Target = M;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -86,7 +94,7 @@ impl Variant {
     where
         M: DigestHash,
     {
-        let digest = <[_; 32]>::from(Hasher::sha256(&message.inner).finalize());
+        let digest = <[_; 32]>::from(Hasher::sha256(&**message).finalize());
         match (self, message.signature) {
             (Self::Unimplemented, _) => unimplemented!(),
             (Self::HalfSipHash(variant), OrderedMulticastSignature::HalfSipHash(codes)) => {

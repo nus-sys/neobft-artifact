@@ -3,7 +3,7 @@
 //! Although supported by an asynchronous reactor, protocol code, i.e.,
 //! `impl Receivers` is still synchronous and running in a separated thread.
 
-use std::{collections::HashMap, net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use bincode::Options;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -29,7 +29,7 @@ enum Event {
 
 #[derive(Debug)]
 pub struct Context {
-    config: Arc<Config>,
+    pub config: Arc<Config>,
     socket: Arc<UdpSocket>,
     runtime: Handle,
     source: Host,
@@ -236,7 +236,7 @@ impl Dispatch {
 #[derive(Debug)]
 pub struct OrderedMulticastDispatch(Dispatch);
 
-impl Deref for OrderedMulticastDispatch {
+impl std::ops::Deref for OrderedMulticastDispatch {
     type Target = Dispatch;
 
     fn deref(&self) -> &Self::Target {
@@ -331,6 +331,7 @@ mod tests {
             [(Host::Client(0), "127.0.0.1:10000".parse().unwrap())]
                 .into_iter()
                 .collect(),
+            0,
         );
         let dispatch = Dispatch::new(config, runtime.handle().clone(), false);
 

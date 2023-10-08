@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Mutex, time::Duration};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    client::OnResult,
+    client::BoxedConsume,
     common::{Block, BlockDigest, Chain, Request, Timer},
     context::{
         crypto::{DigestHash, Sign, Signed, Verify},
@@ -24,16 +24,18 @@ pub struct Reply {
     result: Vec<u8>,
 }
 
+#[derive(Debug)]
 pub struct Client {
     index: ClientIndex,
     shared: Mutex<ClientShared>,
 }
 
+#[derive(Debug)]
 struct ClientShared {
     context: Context<Message>,
     request_num: u32,
     op: Option<Vec<u8>>,
-    on_result: Option<Box<dyn OnResult + Send + Sync>>,
+    consume: Option<BoxedConsume>,
     resend_timer: Timer,
 }
 
@@ -45,7 +47,7 @@ impl Client {
                 context,
                 request_num: 0,
                 op: None,
-                on_result: None,
+                consume: None,
                 resend_timer: Timer::new(Duration::from_millis(100)),
             }),
         }
@@ -55,12 +57,12 @@ impl Client {
 impl crate::Client for Client {
     type Message = Message;
 
-    fn invoke(&self, op: Vec<u8>, on_result: impl Into<Box<dyn OnResult + Send + Sync>>) {
+    fn invoke(&self, op: Vec<u8>, consume: impl Into<BoxedConsume>) {
         let shared = &mut *self.shared.lock().unwrap();
         shared.request_num += 1;
         assert!(shared.op.is_none());
         shared.op = Some(op.clone());
-        shared.on_result = Some(on_result.into());
+        shared.consume = Some(consume.into());
         shared.resend_timer.set(&mut shared.context);
 
         let request = Request {
@@ -76,15 +78,16 @@ impl crate::Client for Client {
             unimplemented!()
         };
         let shared = &mut *self.shared.lock().unwrap();
-        if reply.inner.request_num != shared.request_num {
+        if reply.request_num != shared.request_num {
             return;
         }
         shared.op.take().unwrap();
         shared.resend_timer.unset(&mut shared.context);
-        shared.on_result.take().unwrap().apply(reply.inner.result);
+        shared.consume.take().unwrap().apply(reply.inner.result);
     }
 }
 
+#[derive(Debug)]
 pub struct Replica {
     context: Context<Message>,
     blocks: HashMap<BlockDigest, Block>,
@@ -120,8 +123,8 @@ impl Receivers for Replica {
             unimplemented!()
         };
         match self.replies.get(&index) {
-            Some(reply) if reply.request_num > request.inner.request_num => return,
-            Some(reply) if reply.request_num == request.inner.request_num => {
+            Some(reply) if reply.request_num > request.request_num => return,
+            Some(reply) if reply.request_num == request.request_num => {
                 self.context.send(To::Host(remote), reply.clone());
                 return;
             }
@@ -161,10 +164,6 @@ impl Receivers for Replica {
             }
             assert!(self.chain.next_execute().is_none())
         }
-    }
-
-    fn handle_loopback(&mut self, _: Host, _: Self::Message) {
-        unreachable!()
     }
 
     fn on_timer(&mut self, _: Host, _: crate::context::TimerId) {

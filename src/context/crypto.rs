@@ -16,6 +16,14 @@ pub struct Signed<M> {
     pub signature: Signature,
 }
 
+impl<M> std::ops::Deref for Signed<M> {
+    type Target = M;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Signature {
     Plain,
@@ -158,12 +166,12 @@ impl Verifier {
             (Self::Standard(_), Signature::Plain) => unimplemented!(),
             (Self::Standard(verifier), Signature::K256(signature)) => verifier.verifying_keys
                 [&index.into().unwrap()]
-                .verify_digest(Hasher::sha256(&message.inner), signature)
+                .verify_digest(Hasher::sha256(&**message), signature)
                 .map_err(|_| Invalid::Public),
             (Self::Standard(verifier), Signature::Hmac(code)) => {
                 // well...
                 let mut hasher = Hasher::Hmac(verifier.hmac.clone());
-                message.inner.hash(&mut hasher);
+                message.hash(&mut hasher);
                 let Hasher::Hmac(hmac) = hasher else {
                     unreachable!()
                 };

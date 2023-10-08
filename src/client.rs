@@ -28,16 +28,24 @@ impl<F: FnOnce(Vec<u8>)> OnResult for F {
     }
 }
 
-impl<T: OnResult + Send + Sync + 'static> From<T> for Box<dyn OnResult + Send + Sync> {
+pub type BoxedConsume = Box<dyn OnResult + Send + Sync>;
+
+impl<T: OnResult + Send + Sync + 'static> From<T> for BoxedConsume {
     fn from(value: T) -> Self {
         Box::new(value)
+    }
+}
+
+impl std::fmt::Debug for BoxedConsume {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("BoxedConsume").field(&"..").finish()
     }
 }
 
 pub trait Client {
     type Message;
 
-    fn invoke(&self, op: Vec<u8>, on_result: impl Into<Box<dyn OnResult + Send + Sync>>);
+    fn invoke(&self, op: Vec<u8>, consume: impl Into<BoxedConsume>);
 
     fn handle(&self, message: Self::Message);
 
@@ -117,10 +125,6 @@ impl<C> Benchmark<C> {
 
             fn handle(&mut self, receiver: Host, _: Host, message: Self::Message) {
                 self.0[&receiver].handle(message)
-            }
-
-            fn handle_loopback(&mut self, _: Host, _: Self::Message) {
-                unimplemented!()
             }
 
             fn on_timer(&mut self, receiver: Host, _: crate::context::TimerId) {

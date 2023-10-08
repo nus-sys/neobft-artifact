@@ -34,6 +34,7 @@ async fn main() {
         let task = Task {
             client_addrs: client_addrs.clone(),
             replica_addrs: replica_addrs.clone(),
+            num_faulty: 0,
             role: Role::Replica(Replica { index: index as _ }),
         };
         sessions.push(spawn(host_session(
@@ -48,6 +49,7 @@ async fn main() {
     let task = Task {
         client_addrs,
         replica_addrs,
+        num_faulty: 0,
         role: Role::BenchmarkClient(BenchmarkClient {
             num_group: 5,
             num_client: 20,
