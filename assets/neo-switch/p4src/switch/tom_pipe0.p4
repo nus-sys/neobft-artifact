@@ -98,6 +98,8 @@ control TomPipe0SwitchIngress(
         }
 
         if(hdr.bft.isValid()) {
+            hdr.udp.checksum = 0;
+
             // packet first entered the switch
             // stamp the packet session and message number
             if(hdr.bft.pad0 == 0 && hdr.bft.pad1 == 0) {

@@ -161,18 +161,18 @@ control Ingress(
         }
     }
 
-    table multicast_decision {
-        key = {
-            hdr.ethernet.dst_addr : ternary;
-        }
-        actions = {
-            multicast;
-            NoAction;
-        }
-        const entries = {
-            (0x01005e000000 &&& 0xffffff000000) : multicast(998);
-        }
-    }
+    # table multicast_decision {
+    #     key = {
+    #         hdr.ethernet.dst_addr : ternary;
+    #     }
+    #     actions = {
+    #         multicast;
+    #         NoAction;
+    #     }
+    #     const entries = {
+    #         (0x01005e000000 &&& 0xffffff000000) : multicast(998);
+    #     }
+    # }
 
 #ifdef MEASURE_LATENCY
     bit<32> temp0 = 0;
@@ -190,9 +190,9 @@ control Ingress(
             l2_forwarding_decision.apply();
         }
 #else // FPGA_DEBUG
-
         if(ig_intr_md.ingress_port == FPGA_PORT) {
-            multicast_decision.apply();
+            // multicast_decision.apply();
+            multicast(998);
         } else {
             l2_forwarding_decision.apply();
         }
