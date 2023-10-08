@@ -48,9 +48,9 @@ impl<M> Context<M> {
         }
     }
 
-    pub fn pending_count_lower_bound(&self) -> usize {
+    pub fn idle_hint(&self) -> bool {
         match self {
-            Self::Tokio(context) => context.pending_count_lower_bound(),
+            Self::Tokio(context) => context.idle_hint(),
             _ => unimplemented!(),
         }
     }

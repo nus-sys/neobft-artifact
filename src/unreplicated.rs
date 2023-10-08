@@ -92,17 +92,21 @@ pub struct Replica {
     requests: Vec<Request>,
     replies: HashMap<ClientIndex, Reply>,
     app: App,
+    pub make_blocks: bool,
 }
 
 impl Replica {
     pub fn new(context: Context<Message>, app: App) -> Self {
         Self {
             context,
-            blocks: HashMap::with_capacity(20 * 300 * 1000),
+            // probably need to reserve if `make_blocks` is set
+            // or the rehashing will cause huge latency spikes
+            blocks: HashMap::default(),
             chain: Default::default(),
             requests: Default::default(),
             replies: Default::default(),
             app,
+            make_blocks: false,
         }
     }
 }
@@ -125,7 +129,18 @@ impl Receivers for Replica {
         }
 
         self.requests.push(request.inner);
-        if self.context.pending_count_lower_bound() == 0 {
+        if !self.make_blocks {
+            let request = self.requests.last().unwrap();
+            let reply = Reply {
+                request_num: request.request_num,
+                result: self.app.execute(&request.op),
+            };
+            let evicted = self.replies.insert(request.client_index, reply.clone());
+            if let Some(evicted) = evicted {
+                assert_eq!(evicted.request_num, request.request_num - 1)
+            }
+            self.context.send(To::client(request.client_index), reply)
+        } else if self.context.idle_hint() {
             let block = self.chain.propose(&mut self.requests);
             assert!(block.digest() != Chain::GENESIS_DIGEST);
             let evicted = self.blocks.insert(block.digest(), block.clone());

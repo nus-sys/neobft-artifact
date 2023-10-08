@@ -126,8 +126,8 @@ impl Context {
         });
     }
 
-    pub fn pending_count_lower_bound(&self) -> usize {
-        self.event.len()
+    pub fn idle_hint(&self) -> bool {
+        self.event.is_empty()
     }
 }
 

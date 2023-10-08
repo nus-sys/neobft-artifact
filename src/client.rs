@@ -46,6 +46,7 @@ pub trait Client {
 
 pub struct Benchmark<C> {
     clients: HashMap<Host, Arc<C>>,
+    bootstrap: bool,
     finish_sender: flume::Sender<(Host, Duration)>,
     finish_receiver: flume::Receiver<(Host, Duration)>,
     pub latencies: Vec<Duration>,
@@ -62,6 +63,7 @@ impl<C> Benchmark<C> {
         let (finish_sender, finish_receiver) = flume::unbounded();
         Self {
             clients: Default::default(),
+            bootstrap: true,
             finish_sender,
             finish_receiver,
             latencies: Default::default(),
@@ -73,11 +75,11 @@ impl<C> Benchmark<C> {
         assert!(evicted.is_none())
     }
 
-    pub fn close_loop(&mut self, duration: Duration, bootstrap: bool)
+    pub fn close_loop(&mut self, duration: Duration)
     where
         C: Client,
     {
-        if bootstrap {
+        if self.bootstrap {
             for (&index, client) in &self.clients {
                 let finish_sender = self.finish_sender.clone();
                 let start = Instant::now();
@@ -86,6 +88,7 @@ impl<C> Benchmark<C> {
                     finish_sender.send((index, start.elapsed())).unwrap()
                 });
             }
+            self.bootstrap = false;
         }
         let deadline = Instant::now() + duration;
         while let Ok((index, latency)) = self.finish_receiver.recv_deadline(deadline) {
@@ -180,9 +183,9 @@ pub fn run_benchmark(
             let benchmark_thread = std::thread::spawn(move || {
                 set_affinity(group_index * 3 + 2);
                 barrier.wait();
-                benchmark.close_loop(Duration::from_secs(3), true);
+                benchmark.close_loop(Duration::from_secs(3));
                 benchmark.latencies.clear();
-                benchmark.close_loop(duration, false);
+                benchmark.close_loop(duration);
                 benchmark
             });
 
