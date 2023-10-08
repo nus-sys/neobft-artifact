@@ -144,31 +144,6 @@ async fn reset(State(state): State<Arc<Mutex<AppState>>>) {
 }
 
 fn main() {
-    if std::env::args().nth(1).as_deref() == Some("start-daemon") {
-        let current_exe = std::env::current_exe().unwrap();
-        let start_script = current_exe.with_file_name("permissioned-blockchain-start.sh");
-        std::fs::write(
-            &start_script,
-            format!(
-                "RUST_BACKTRACE=1 {} 1>{} 2>{} &",
-                current_exe.display(),
-                current_exe
-                    .with_file_name("permissioned-blockchain-stdout.txt")
-                    .display(),
-                current_exe
-                    .with_file_name("permissioned-blockchain-stderr.txt")
-                    .display()
-            ),
-        )
-        .unwrap();
-        let status = std::process::Command::new("bash")
-            .arg(start_script)
-            .status()
-            .unwrap();
-        assert!(status.success());
-        return;
-    }
-
     let state = Arc::new(Mutex::new(AppState::Idle));
     let hook = std::panic::take_hook();
     std::panic::set_hook({

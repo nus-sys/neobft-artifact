@@ -10,6 +10,7 @@ use hmac::{Hmac, Mac};
 use k256::{ecdsa::SigningKey, sha2::Sha256};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{net::UdpSocket, runtime::Handle, task::JoinHandle};
+use tokio_util::bytes::Bytes;
 
 use crate::context::crypto::Verifier;
 
@@ -67,7 +68,7 @@ impl Config {
 #[derive(Debug, Clone)]
 enum Event {
     Message(Host, Host, Vec<u8>),
-    LoopbackMessage(Host, Vec<u8>),
+    LoopbackMessage(Host, Bytes),
     Timer(Host, TimerId),
     Stop,
 }
@@ -91,39 +92,29 @@ impl Context {
         M: Sign<N> + Serialize,
     {
         let message = M::sign(message, &self.signer);
-        self.send_buf(to, bincode::options().serialize(&message).unwrap());
-    }
-
-    pub fn send_buf(&self, to: To, buf: Vec<u8>) {
-        let config = self.config.clone();
-        let socket = self.socket.clone();
-        let source = self.source;
-        let event = self.event.clone();
-        self.runtime.spawn(async move {
-            match to {
-                To::Host(host) => {
-                    assert_ne!(host, source);
-                    socket
-                        .send_to(&buf, config.hosts[&host].addr)
-                        .await
-                        .unwrap();
-                }
-                To::AllReplica | To::AllReplicaWithLoopback => {
-                    for (&host, host_config) in &config.hosts {
-                        if matches!(host, Host::Replica(_)) && host != source {
-                            socket.send_to(&buf, host_config.addr).await.unwrap();
-                        }
+        let buf = Bytes::from(bincode::options().serialize(&message).unwrap());
+        match to {
+            To::Host(host) => self.send_internal(self.config.hosts[&host].addr, buf.clone()),
+            To::AllReplica | To::AllReplicaWithLoopback => {
+                for (&host, host_config) in &self.config.hosts {
+                    if matches!(host, Host::Replica(_)) && host != self.source {
+                        self.send_internal(host_config.addr, buf.clone())
                     }
                 }
-                To::Loopback => {}
             }
-            if matches!(to, To::Loopback | To::AllReplicaWithLoopback) {
-                event
-                    .send_async(Event::LoopbackMessage(source, buf))
-                    .await
-                    .unwrap();
-            }
-        });
+            To::Loopback => {}
+        }
+        if matches!(to, To::Loopback | To::AllReplicaWithLoopback) {
+            self.event
+                .send(Event::LoopbackMessage(self.source, buf))
+                .unwrap()
+        }
+    }
+
+    fn send_internal(&self, addr: SocketAddr, buf: Bytes) {
+        let socket = self.socket.clone();
+        self.runtime
+            .spawn(async move { socket.send_to(buf.as_ref(), addr).await.unwrap() });
     }
 
     pub fn idle_hint(&self) -> bool {
