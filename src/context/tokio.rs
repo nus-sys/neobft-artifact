@@ -6,6 +6,7 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use bincode::Options;
+use rand::Rng;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{net::UdpSocket, runtime::Handle, task::JoinHandle};
 use tokio_util::bytes::Bytes;
@@ -118,6 +119,7 @@ pub struct Dispatch {
     variant: Arc<Variant>,
     event: (flume::Sender<Event>, flume::Receiver<Event>),
     rdv_event: (flume::Sender<Event>, flume::Receiver<Event>),
+    pub drop_rate: f64,
 }
 
 impl Dispatch {
@@ -141,6 +143,7 @@ impl Dispatch {
             variant,
             event: flume::unbounded(),
             rdv_event: flume::bounded(0),
+            drop_rate: 0.,
         }
     }
 
@@ -192,7 +195,7 @@ impl Dispatch {
         N: DeserializeOwned + DigestHash,
     {
         loop {
-            assert!(self.event.1.len() < 1024, "receivers overwhelmed");
+            assert!(self.event.1.len() < 4096, "receivers overwhelmed");
             if self.event.1.is_empty() {
                 receivers.on_idle()
             }
@@ -203,6 +206,9 @@ impl Dispatch {
             match event {
                 Event::Stop => break,
                 Event::Message(receiver, remote, message) => {
+                    if self.drop_rate != 0. && rand::thread_rng().gen_bool(self.drop_rate) {
+                        continue;
+                    }
                     let message = bincode::options()
                         .allow_trailing_bytes()
                         .deserialize::<M>(&message)
@@ -218,6 +224,9 @@ impl Dispatch {
                     receivers.handle_loopback(receiver, message)
                 }
                 Event::OrderedMulticastMessage(remote, message) => {
+                    if self.drop_rate != 0. && rand::thread_rng().gen_bool(self.drop_rate) {
+                        continue;
+                    }
                     let message = into(self.variant.deserialize(message));
                     message.verify(&self.verifier).unwrap();
                     receivers.handle(Host::Multicast, remote, message)

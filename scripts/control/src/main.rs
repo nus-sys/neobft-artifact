@@ -26,24 +26,25 @@ async fn main() {
     ];
 
     let mode = "neo";
-    // let app = App::Null;
-    let app = App::Ycsb(control_messages::YcsbConfig {
-        num_key: 10 * 1000,
-        num_value: 100 * 1000,
-        key_len: 64,
-        value_len: 128,
-        read_portion: 50,
-        update_portion: 40,
-        rmw_portion: 10,
-    });
+    let app = App::Null;
+    // let app = App::Ycsb(control_messages::YcsbConfig {
+    //     num_key: 10 * 1000,
+    //     num_value: 100 * 1000,
+    //     key_len: 64,
+    //     value_len: 128,
+    //     read_portion: 50,
+    //     update_portion: 40,
+    //     rmw_portion: 10,
+    // });
     let benchmark = BenchmarkClient {
         num_group: 5,
-        num_client: 20,
+        num_client: 8,
         duration: Duration::from_secs(10),
     };
     let client_addrs = Vec::from_iter(
         client_addrs.take(benchmark.num_group * benchmark.num_client * num_client_host),
     );
+    let num_faulty = 1;
 
     let task = |role| Task {
         mode: String::from(mode),
@@ -51,9 +52,10 @@ async fn main() {
         client_addrs: client_addrs.clone(),
         replica_addrs: replica_addrs.clone(),
         multicast_addr,
-        num_faulty: 0,
-        role,
+        num_faulty,
+        drop_rate: 1e-3,
         seed: 3603269_3604874,
+        role,
     };
 
     let cancel = CancellationToken::new();
@@ -70,6 +72,9 @@ async fn main() {
     let mut sessions = Vec::new();
     for (index, host) in replica_hosts.into_iter().enumerate() {
         if mode == "unreplicated" && index > 0 {
+            break;
+        }
+        if mode.starts_with("neo") && index >= replica_addrs.len() - num_faulty {
             break;
         }
         sessions.push(spawn(host_session(

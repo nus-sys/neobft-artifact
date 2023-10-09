@@ -268,11 +268,19 @@ impl Replica {
         // Jialin's trick to avoid resetting switch for every run
         let op_num = message.seq_num - *self.seq_num_offset.get_or_insert(message.seq_num) + 1;
         let next_op_num = (self.requests.len() + 1) as _;
-        assert!(op_num >= next_op_num);
+        // eager querying may defeat the slow original message...
+        // assert!(op_num >= next_op_num);
+        if op_num < next_op_num {
+            return;
+        }
+
         if op_num != next_op_num {
             self.reordering_requests.insert(op_num, message);
-            assert!(self.reordering_requests.len() < 100);
-            self.do_query();
+            // reordering should be resolved within millisecond
+            assert!(self.reordering_requests.len() < 300);
+            if self.reordering_requests.len() == 1 {
+                self.do_query()
+            }
             return;
         }
 
@@ -280,7 +288,7 @@ impl Replica {
             self.requests.push(message);
             self.do_commit(self.requests.len() as _);
             while let Some(request) = {
-                let next_op_num = (self.requests.len() - 1) as _;
+                let next_op_num = (self.requests.len() + 1) as _;
                 self.reordering_requests.remove(&next_op_num)
             } {
                 self.requests.push(request);
@@ -297,7 +305,7 @@ impl Replica {
                 }
             }
             while let Some(request) = {
-                let next_op_num = (self.requests.len() - 1) as _;
+                let next_op_num = (self.requests.len() + 1) as _;
                 self.reordering_requests.remove(&next_op_num)
             } {
                 self.requests.push(request);
@@ -342,8 +350,10 @@ impl Replica {
         } else if let Some(request) = self.reordering_requests.get(&message.op_num) {
             request.clone()
         } else {
+            println!("! query missing {}", message.op_num);
             return;
         };
+        // println!("< query replied {}", message.op_num);
         let query_ok = QueryOk {
             op_num: message.op_num,
             request,
@@ -354,6 +364,7 @@ impl Replica {
 
     fn handle_query_ok(&mut self, remote: Host, message: QueryOk) {
         if message.op_num == self.requests.len() as u32 + 1 {
+            // println!("> query done {}", message.op_num);
             self.handle_request(remote, message.request);
             if !self.reordering_requests.is_empty() {
                 self.do_query()
@@ -441,6 +452,7 @@ impl Replica {
             op_num: self.requests.len() as u32 + 1,
             replica_index: self.index,
         };
+        // println!("< query sent {}", query.op_num);
         self.context.send(To::AllReplica, query)
     }
 }

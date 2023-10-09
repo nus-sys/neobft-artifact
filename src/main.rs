@@ -116,7 +116,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                         .enable_all()
                         .build()
                         .unwrap();
-                    let dispatch = Dispatch::new(
+                    let mut dispatch = Dispatch::new(
                         dispatch_config,
                         runtime.handle().clone(),
                         true,
@@ -151,6 +151,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                                 app,
                                 task.mode == "neo-bn",
                             );
+                            dispatch.drop_rate = task.drop_rate;
                             dispatch.enable_ordered_multicast().run(&mut replica)
                         }
                         "pbft" => {

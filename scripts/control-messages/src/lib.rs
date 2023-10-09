@@ -10,8 +10,9 @@ pub struct Task {
     pub replica_addrs: Vec<SocketAddr>,
     pub multicast_addr: SocketAddr,
     pub num_faulty: usize,
-    pub role: Role,
+    pub drop_rate: f64,
     pub seed: u64,
+    pub role: Role,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
