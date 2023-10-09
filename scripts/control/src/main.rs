@@ -25,7 +25,7 @@ async fn main() {
         "nsl-node4.d2",
     ];
 
-    let mode = "pbft";
+    let mode = "neo";
     // let app = App::Null;
     let app = App::Ycsb(control_messages::YcsbConfig {
         num_key: 10 * 1000,
@@ -33,8 +33,8 @@ async fn main() {
         key_len: 64,
         value_len: 128,
         read_portion: 50,
-        update_portion: 50,
-        rmw_portion: 0,
+        update_portion: 40,
+        rmw_portion: 10,
     });
     let benchmark = BenchmarkClient {
         num_group: 5,

@@ -24,6 +24,8 @@ pub enum Message {
     Request(OrderedMulticast<Request>),
     Reply(Signed<Reply>),
     Confirm(Signed<Confirm>),
+    Query(Signed<Query>),
+    QueryOk(QueryOk),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +42,18 @@ pub struct Confirm {
     digest: [u8; 32],
     op_nums: RangeInclusive<u32>,
     replica_index: ReplicaIndex,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Query {
+    op_num: u32,
+    replica_index: ReplicaIndex,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryOk {
+    op_num: u32,
+    request: OrderedMulticast<Request>,
 }
 
 #[derive(Debug)]
@@ -210,6 +224,8 @@ impl Receivers for Replica {
         match (receiver, message) {
             (Host::Multicast, Message::Request(message)) => self.handle_request(remote, message),
             (Host::Replica(_), Message::Confirm(message)) => self.handle_confirm(remote, message),
+            (Host::Replica(_), Message::Query(message)) => self.handle_query(remote, message),
+            (Host::Replica(_), Message::QueryOk(message)) => self.handle_query_ok(remote, message),
             _ => unimplemented!(),
         }
     }
@@ -256,6 +272,7 @@ impl Replica {
         if op_num != next_op_num {
             self.reordering_requests.insert(op_num, message);
             assert!(self.reordering_requests.len() < 100);
+            self.do_query();
             return;
         }
 
@@ -316,6 +333,31 @@ impl Replica {
             .remove(&(index, self.remote_confirmed_nums[&index] + 1))
         {
             self.do_confirm1(message)
+        }
+    }
+
+    fn handle_query(&mut self, _remote: Host, message: Signed<Query>) {
+        let request = if message.op_num <= self.requests.len() as u32 {
+            I(&self.requests)[message.op_num].clone()
+        } else if let Some(request) = self.reordering_requests.get(&message.op_num) {
+            request.clone()
+        } else {
+            return;
+        };
+        let query_ok = QueryOk {
+            op_num: message.op_num,
+            request,
+        };
+        self.context
+            .send(To::replica(message.replica_index), query_ok)
+    }
+
+    fn handle_query_ok(&mut self, remote: Host, message: QueryOk) {
+        if message.op_num == self.requests.len() as u32 + 1 {
+            self.handle_request(remote, message.request);
+            if !self.reordering_requests.is_empty() {
+                self.do_query()
+            }
         }
     }
 
@@ -393,6 +435,14 @@ impl Replica {
             self.confirmed_num = new_confirmed_num;
         }
     }
+
+    fn do_query(&mut self) {
+        let query = Query {
+            op_num: self.requests.len() as u32 + 1,
+            replica_index: self.index,
+        };
+        self.context.send(To::AllReplica, query)
+    }
 }
 
 impl From<OrderedMulticast<Request>> for Message {
@@ -420,6 +470,13 @@ impl DigestHash for Confirm {
     }
 }
 
+impl DigestHash for Query {
+    fn hash(&self, hasher: &mut impl std::hash::Hasher) {
+        hasher.write_u32(self.op_num);
+        hasher.write_u8(self.replica_index)
+    }
+}
+
 impl Sign<Reply> for Message {
     fn sign(message: Reply, signer: &crate::context::crypto::Signer) -> Self {
         Message::Reply(signer.sign_private(message))
@@ -432,6 +489,18 @@ impl Sign<Confirm> for Message {
     }
 }
 
+impl Sign<Query> for Message {
+    fn sign(message: Query, signer: &crate::context::crypto::Signer) -> Self {
+        Message::Query(signer.sign_public(message))
+    }
+}
+
+impl From<QueryOk> for Message {
+    fn from(value: QueryOk) -> Self {
+        Self::QueryOk(value)
+    }
+}
+
 impl Verify for Message {
     fn verify(
         &self,
@@ -441,6 +510,8 @@ impl Verify for Message {
             Self::Request(message) => verifier.verify_ordered_multicast(message),
             Self::Reply(message) => verifier.verify(message, message.replica_index),
             Self::Confirm(message) => verifier.verify(message, message.replica_index),
+            Self::Query(message) => verifier.verify(message, message.replica_index),
+            Self::QueryOk(message) => verifier.verify_ordered_multicast(&message.request),
         }
     }
 }
