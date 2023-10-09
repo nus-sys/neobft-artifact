@@ -114,8 +114,9 @@ impl Variant {
         match (self, message.signature) {
             (Self::Unreachable, _) => unreachable!(),
             (Self::HalfSipHash(variant), OrderedMulticastSignature::HalfSipHash(codes)) => {
-                // TODO
-                if digest == [0; 32] {
+                // TODO tentatively mock the HalfSipHash for SipHash
+                use std::hash::BuildHasher;
+                if std::collections::hash_map::RandomState::new().hash_one(digest) == 0 {
                     return Err(Invalid::Private);
                 }
                 if codes[variant.index as usize] == [0; 4] {

@@ -143,7 +143,15 @@ impl Receivers for Replica {
                 assert_eq!(evicted.request_num, request.request_num - 1)
             }
             self.context.send(To::client(request.client_index), reply)
-        } else if self.context.idle_hint() {
+        }
+    }
+
+    fn on_timer(&mut self, _: Host, _: crate::context::TimerId) {
+        unreachable!()
+    }
+
+    fn on_idle(&mut self) {
+        if self.make_blocks && !self.requests.is_empty() {
             let block = self.chain.propose(&mut self.requests);
             assert!(block.digest() != Chain::GENESIS_DIGEST);
             let evicted = self.blocks.insert(block.digest(), block.clone());
@@ -164,10 +172,6 @@ impl Receivers for Replica {
             }
             assert!(self.chain.next_execute().is_none())
         }
-    }
-
-    fn on_timer(&mut self, _: Host, _: crate::context::TimerId) {
-        unreachable!()
     }
 }
 

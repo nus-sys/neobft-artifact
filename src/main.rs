@@ -114,6 +114,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                                 dispatch.register(Host::Replica(0)),
                                 App::Null,
                             );
+                            // replica.make_blocks = true;
                             dispatch.run(&mut replica)
                         }
                         "neo" | "neo-bn" => {
