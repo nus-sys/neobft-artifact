@@ -64,6 +64,11 @@ impl DigestHash for OrderedMulticastSignature {
 }
 
 impl<M> OrderedMulticast<M> {
+    pub fn verified(&self) -> bool {
+        use OrderedMulticastSignature::*;
+        matches!(self.signature, HalfSipHash(_) | K256(_))
+    }
+
     pub fn state(&self) -> Sha256
     where
         M: DigestHash,

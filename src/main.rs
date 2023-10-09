@@ -71,7 +71,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                         config.duration,
                         workload,
                     ),
-                    "neo" | "neo-bn" => run_benchmark(
+                    "neo-hm" | "neo-pk" | "neo-bn" => run_benchmark(
                         dispatch_config,
                         neo::Client::new,
                         config.num_group,
@@ -120,7 +120,11 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                         dispatch_config,
                         runtime.handle().clone(),
                         true,
-                        Variant::new_half_sip_hash(replica.index),
+                        match &*task.mode {
+                            "neo-hm" => Variant::new_half_sip_hash(replica.index),
+                            "neo-pk" | "neo-bn" => Variant::new_k256(),
+                            _ => Variant::Unreachable,
+                        },
                     );
 
                     let handle = dispatch.handle();
@@ -144,7 +148,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                             // replica.make_blocks = true;
                             dispatch.run(&mut replica)
                         }
-                        "neo" | "neo-bn" => {
+                        "neo-hm" | "neo-pk" | "neo-bn" => {
                             let mut replica = neo::Replica::new(
                                 dispatch.register(Host::Replica(replica.index)),
                                 replica.index,
