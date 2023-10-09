@@ -29,7 +29,7 @@ pub enum Workload {
 
 impl Workload {
     pub fn generate(
-        &mut self,
+        &self,
         client: impl Client + Send + Sync + 'static,
         rng: &mut impl Rng,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> {

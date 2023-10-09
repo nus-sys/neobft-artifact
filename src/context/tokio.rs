@@ -71,7 +71,7 @@ impl Context {
             socket
                 .send_to(buf.as_ref(), addr)
                 .await
-                .expect("target: {addr:?}")
+                .unwrap_or_else(|_| panic!("target: {addr:?}"))
         });
     }
 

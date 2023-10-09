@@ -12,11 +12,13 @@ use axum::{
 };
 use control_messages::{BenchmarkStats, Role, Task};
 use permissioned_blockchain::{
+    app::{ycsb, Workload},
     client::run_benchmark,
     common::set_affinity,
     context::{ordered_multicast::Variant, tokio::Dispatch, Config, Host},
     neo, pbft, unreplicated, App,
 };
+use rand::{rngs::StdRng, SeedableRng};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -47,9 +49,17 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
     let mut dispatch_config = Config::new(addrs, task.num_faulty);
     dispatch_config.multicast_addr = Some(task.multicast_addr);
 
+    let mut rng = StdRng::seed_from_u64(task.seed);
     match task.role {
         Role::BenchmarkClient(config) => {
             *state.lock().unwrap() = AppState::BenchmarkClientRunning;
+            let workload = match task.app {
+                control_messages::App::Null => Workload::Null,
+                control_messages::App::Ycsb(config) => {
+                    Workload::Ycsb(ycsb::Workload::new(config.into(), &mut rng))
+                }
+            };
+
             let state = state.clone();
             tokio::task::spawn_blocking(move || {
                 let latencies = match &*task.mode {
@@ -59,6 +69,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                         config.num_group,
                         config.num_client,
                         config.duration,
+                        workload,
                     ),
                     "neo" | "neo-bn" => run_benchmark(
                         dispatch_config,
@@ -66,6 +77,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                         config.num_group,
                         config.num_client,
                         config.duration,
+                        workload,
                     ),
                     "pbft" => run_benchmark(
                         dispatch_config,
@@ -73,6 +85,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                         config.num_group,
                         config.num_client,
                         config.duration,
+                        workload,
                     ),
                     _ => unimplemented!(),
                 };
@@ -88,6 +101,13 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
             });
         }
         Role::Replica(replica) => {
+            let app = match task.app {
+                control_messages::App::Null => App::Null,
+                control_messages::App::Ycsb(config) => {
+                    App::Ycsb(ycsb::Workload::app(config.into(), &mut rng))
+                }
+            };
+
             let cancel = CancellationToken::new();
             let task = tokio::task::spawn_blocking({
                 let cancel = cancel.clone();
@@ -119,7 +139,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                             assert_eq!(replica.index, 0);
                             let mut replica = unreplicated::Replica::new(
                                 dispatch.register(Host::Replica(0)),
-                                App::Null,
+                                app,
                             );
                             // replica.make_blocks = true;
                             dispatch.run(&mut replica)
@@ -128,7 +148,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                             let mut replica = neo::Replica::new(
                                 dispatch.register(Host::Replica(replica.index)),
                                 replica.index,
-                                App::Null,
+                                app,
                                 task.mode == "neo-bn",
                             );
                             dispatch.enable_ordered_multicast().run(&mut replica)
@@ -137,7 +157,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                             let mut replica = pbft::Replica::new(
                                 dispatch.register(Host::Replica(replica.index)),
                                 replica.index,
-                                App::Null,
+                                app,
                             );
                             dispatch.run(&mut replica)
                         }

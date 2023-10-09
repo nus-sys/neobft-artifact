@@ -5,11 +5,30 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub mode: String,
+    pub app: App,
     pub client_addrs: Vec<SocketAddr>,
     pub replica_addrs: Vec<SocketAddr>,
     pub multicast_addr: SocketAddr,
     pub num_faulty: usize,
     pub role: Role,
+    pub seed: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum App {
+    Null,
+    Ycsb(YcsbConfig),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YcsbConfig {
+    pub num_key: usize,
+    pub num_value: usize,
+    pub key_len: usize,
+    pub value_len: usize,
+    pub read_portion: u32,
+    pub update_portion: u32,
+    pub rmw_portion: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

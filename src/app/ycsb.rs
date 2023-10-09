@@ -95,11 +95,11 @@ impl Workload {
         })
     }
 
-    pub fn app(num_entry: usize, key_len: usize, value_len: usize, rng: &mut impl Rng) -> App {
-        let keys = Vec::from_iter(Self::iter_strings(rng, key_len).take(num_entry));
+    pub fn app(config: WorkloadConfig, rng: &mut impl Rng) -> App {
+        let keys = Vec::from_iter(Self::iter_strings(rng, config.key_len).take(config.num_key));
         let entries = keys
             .into_iter()
-            .zip(Self::iter_strings(rng, value_len))
+            .zip(Self::iter_strings(rng, config.value_len))
             .collect();
         App(entries)
     }
@@ -113,6 +113,29 @@ pub struct WorkloadConfig {
     pub read_portion: u32,
     pub update_portion: u32,
     pub rmw_portion: u32,
+}
+
+impl From<control_messages::YcsbConfig> for WorkloadConfig {
+    fn from(value: control_messages::YcsbConfig) -> Self {
+        let control_messages::YcsbConfig {
+            num_key,
+            num_value,
+            key_len,
+            value_len,
+            read_portion,
+            update_portion,
+            rmw_portion,
+        } = value;
+        Self {
+            num_key,
+            num_value,
+            key_len,
+            value_len,
+            read_portion,
+            update_portion,
+            rmw_portion,
+        }
+    }
 }
 
 impl Workload {

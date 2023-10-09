@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use control_messages::{BenchmarkClient, BenchmarkStats, Replica, Role, Task};
+use control_messages::{App, BenchmarkClient, BenchmarkStats, Replica, Role, Task};
 use reqwest::Client;
 use tokio::{select, spawn, time::sleep};
 use tokio_util::sync::CancellationToken;
@@ -26,9 +26,19 @@ async fn main() {
     ];
 
     let mode = "pbft";
+    // let app = App::Null;
+    let app = App::Ycsb(control_messages::YcsbConfig {
+        num_key: 10 * 1000,
+        num_value: 100 * 1000,
+        key_len: 64,
+        value_len: 128,
+        read_portion: 50,
+        update_portion: 50,
+        rmw_portion: 0,
+    });
     let benchmark = BenchmarkClient {
         num_group: 5,
-        num_client: 40,
+        num_client: 20,
         duration: Duration::from_secs(10),
     };
     let client_addrs = Vec::from_iter(
@@ -37,11 +47,13 @@ async fn main() {
 
     let task = |role| Task {
         mode: String::from(mode),
+        app: app.clone(),
         client_addrs: client_addrs.clone(),
         replica_addrs: replica_addrs.clone(),
         multicast_addr,
         num_faulty: 0,
         role,
+        seed: 3603269_3604874,
     };
 
     let cancel = CancellationToken::new();
