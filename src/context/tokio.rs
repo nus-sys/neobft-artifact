@@ -192,6 +192,10 @@ impl Dispatch {
         N: DeserializeOwned + DigestHash,
     {
         loop {
+            assert!(self.event.1.len() < 100, "receivers overwhelmed");
+            if self.event.1.is_empty() {
+                receivers.on_idle()
+            }
             let event = flume::Selector::new()
                 .recv(&self.event.1, Result::unwrap)
                 .recv(&self.rdv_event.1, Result::unwrap)

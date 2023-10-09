@@ -41,6 +41,19 @@ impl<M> std::ops::Deref for OrderedMulticast<M> {
     }
 }
 
+impl DigestHash for OrderedMulticastSignature {
+    fn hash(&self, hasher: &mut impl std::hash::Hasher) {
+        match self {
+            Self::HalfSipHash([code0, code1, code2, code3]) => {
+                hasher.write(&code0[..]);
+                hasher.write(&code1[..]);
+                hasher.write(&code2[..]);
+                hasher.write(&code3[..])
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Variant {
     Unreachable,
@@ -86,7 +99,10 @@ impl Variant {
             seq_num: u32::from_be_bytes(seq_num),
             signature,
             linked,
-            inner: bincode::options().deserialize(&buf[100..]).unwrap(),
+            inner: bincode::options()
+                .allow_trailing_bytes()
+                .deserialize(&buf[100..])
+                .unwrap(),
         }
     }
 

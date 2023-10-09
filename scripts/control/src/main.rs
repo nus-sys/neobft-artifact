@@ -28,7 +28,7 @@ async fn main() {
     let mode = "neo-bn";
     let benchmark = BenchmarkClient {
         num_group: 1,
-        num_client: 6,
+        num_client: 4,
         duration: Duration::from_secs(10),
     };
     let client_addrs = Vec::from_iter(

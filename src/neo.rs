@@ -150,8 +150,9 @@ pub struct Replica {
     app: App,
 
     confirm: bool,
+    local_confirmed_num: u32,
     confirmed_num: u32,
-    confirms: HashMap<ReplicaIndex, u32>,
+    remote_confirmed_nums: HashMap<ReplicaIndex, u32>,
     // TODO confirm as certificates
     reordering_confirms1: HashMap<(ReplicaIndex, u32), Signed<Confirm>>,
     reordering_confirms2: HashMap<u32, Vec<Signed<Confirm>>>,
@@ -159,7 +160,7 @@ pub struct Replica {
 
 impl Replica {
     pub fn new(context: Context<Message>, index: ReplicaIndex, app: App, confirm: bool) -> Self {
-        let confirmed_nums = if confirm {
+        let remote_confirmed_nums = if confirm {
             (0..context.config().num_replica)
                 .map(|index| (index as ReplicaIndex, 0))
                 .collect()
@@ -175,8 +176,9 @@ impl Replica {
             replies: Default::default(),
             app,
             confirm,
+            local_confirmed_num: 0,
+            remote_confirmed_nums,
             confirmed_num: 0,
-            confirms: confirmed_nums,
             reordering_confirms1: Default::default(),
             reordering_confirms2: Default::default(),
         }
@@ -210,23 +212,6 @@ impl Receivers for Replica {
             (Host::Replica(_), Message::Confirm(message)) => self.handle_confirm(remote, message),
             _ => unimplemented!(),
         }
-
-        if self.context.idle_hint() && self.confirm {
-            let local_confirm_num = self.confirms[&self.index];
-            let op_nums = local_confirm_num + 1..=self.requests.len() as u32;
-            if !op_nums.is_empty() {
-                let mut digest = Sha256::new();
-                for request in &I(&self.requests)[op_nums.clone()] {
-                    Hasher::sha256_update(&request.inner, &mut digest);
-                }
-                let confirm = Confirm {
-                    digest: digest.finalize().into(),
-                    op_nums,
-                    replica_index: self.index,
-                };
-                self.context.send(To::AllReplicaWithLoopback, confirm)
-            }
-        }
     }
 
     fn handle_loopback(&mut self, receiver: Host, message: Self::Message) {
@@ -234,13 +219,25 @@ impl Receivers for Replica {
         let Message::Confirm(confirm) = message else {
             unreachable!()
         };
-        let evicted = self.confirms.insert(self.index, *confirm.op_nums.end());
+        let evicted = self
+            .remote_confirmed_nums
+            .insert(self.index, *confirm.op_nums.end());
         assert_eq!(evicted.unwrap() + 1, *confirm.op_nums.start());
-        self.do_update_confirm_num()
+        self.do_update_confirm_num();
+
+        if self.requests.len() >= self.local_confirmed_num as usize + Self::CONFIRM_THRESHOLD {
+            self.do_send_confirm()
+        }
     }
 
     fn on_timer(&mut self, _: Host, _: crate::context::TimerId) {
         unreachable!()
+    }
+
+    fn on_idle(&mut self) {
+        if self.confirm {
+            self.do_send_confirm()
+        }
     }
 }
 
@@ -249,6 +246,8 @@ impl OrderedMulticastReceivers for Replica {
 }
 
 impl Replica {
+    pub const CONFIRM_THRESHOLD: usize = 10;
+
     fn handle_request(&mut self, _remote: Host, message: OrderedMulticast<Request>) {
         // Jialin's trick to avoid resetting switch for every run
         let op_num = message.seq_num - *self.seq_num_offset.get_or_insert(message.seq_num) + 1;
@@ -294,12 +293,16 @@ impl Replica {
                     }
                 }
             }
+
+            if self.requests.len() >= self.local_confirmed_num as usize + Self::CONFIRM_THRESHOLD {
+                self.do_send_confirm()
+            }
         }
     }
 
     fn handle_confirm(&mut self, _remote: Host, message: Signed<Confirm>) {
         assert!(self.confirm);
-        let confirmed_num = self.confirms[&message.replica_index];
+        let confirmed_num = self.remote_confirmed_nums[&message.replica_index];
         assert!(*message.op_nums.start() > confirmed_num);
         if *message.op_nums.start() != confirmed_num + 1 {
             self.reordering_confirms1
@@ -310,7 +313,7 @@ impl Replica {
         self.do_confirm1(message);
         while let Some(message) = self
             .reordering_confirms1
-            .remove(&(index, self.confirms[&index] + 1))
+            .remove(&(index, self.remote_confirmed_nums[&index] + 1))
         {
             self.do_confirm1(message)
         }
@@ -337,6 +340,25 @@ impl Replica {
         self.context.send(To::client(request.client_index), reply)
     }
 
+    fn do_send_confirm(&mut self) {
+        let op_nums = self.local_confirmed_num + 1..=self.requests.len() as u32;
+        if !op_nums.is_empty() && *op_nums.start() == self.remote_confirmed_nums[&self.index] + 1 {
+            // println!("confirming {op_nums:?}");
+            let mut digest = Sha256::new();
+            for request in &I(&self.requests)[op_nums.clone()] {
+                Hasher::sha256_update(&request.inner, &mut digest);
+            }
+            let confirm = Confirm {
+                digest: digest.finalize().into(),
+                op_nums,
+                replica_index: self.index,
+            };
+            self.context.send(To::AllReplicaWithLoopback, confirm);
+            // TODO set up resending confirm
+            self.local_confirmed_num = self.requests.len() as _;
+        }
+    }
+
     fn do_confirm1(&mut self, message: Signed<Confirm>) {
         if *message.op_nums.end() > self.requests.len() as u32 {
             self.reordering_confirms2
@@ -354,13 +376,13 @@ impl Replica {
             Hasher::sha256_update(&request.inner, &mut local_digest)
         }
         assert_eq!(<[_; 32]>::from(local_digest.finalize()), message.digest);
-        self.confirms
+        self.remote_confirmed_nums
             .insert(message.replica_index, *message.op_nums.end());
         self.do_update_confirm_num()
     }
 
     fn do_update_confirm_num(&mut self) {
-        let mut confirmed_nums = Vec::from_iter(self.confirms.values().copied());
+        let mut confirmed_nums = Vec::from_iter(self.remote_confirmed_nums.values().copied());
         confirmed_nums.sort_unstable();
         let new_confirmed_num = confirmed_nums[self.context.config().num_faulty];
         assert!(new_confirmed_num >= self.confirmed_num);

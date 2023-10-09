@@ -113,6 +113,8 @@ pub trait Receivers {
     }
 
     fn on_timer(&mut self, receiver: Host, id: TimerId);
+
+    fn on_idle(&mut self) {}
 }
 
 pub trait OrderedMulticastReceivers
