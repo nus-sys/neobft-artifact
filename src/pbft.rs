@@ -199,6 +199,12 @@ impl Receivers for Replica {
             _ => unimplemented!(),
         }
     }
+
+    fn on_idle(&mut self) {
+        if self.index == self.primary_index() && !self.requests.is_empty() {
+            self.do_propose()
+        }
+    }
 }
 
 impl Replica {
@@ -215,8 +221,6 @@ impl Replica {
         // TODO check resend
 
         self.requests.push(message.inner);
-        // TODO batching
-        self.do_propose();
     }
 
     fn handle_pre_prepare(&mut self, _remote: Host, message: Signed<PrePrepare>) {

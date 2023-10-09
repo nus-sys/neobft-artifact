@@ -192,7 +192,7 @@ impl Dispatch {
         N: DeserializeOwned + DigestHash,
     {
         loop {
-            assert!(self.event.1.len() < 100, "receivers overwhelmed");
+            assert!(self.event.1.len() < 1024, "receivers overwhelmed");
             if self.event.1.is_empty() {
                 receivers.on_idle()
             }
