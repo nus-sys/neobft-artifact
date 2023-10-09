@@ -15,7 +15,7 @@ use permissioned_blockchain::{
     client::run_benchmark,
     common::set_affinity,
     context::{ordered_multicast::Variant, tokio::Dispatch, Config, Host},
-    neo, unreplicated, App,
+    neo, pbft, unreplicated, App,
 };
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -63,6 +63,13 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                     "neo" | "neo-bn" => run_benchmark(
                         dispatch_config,
                         neo::Client::new,
+                        config.num_group,
+                        config.num_client,
+                        config.duration,
+                    ),
+                    "pbft" => run_benchmark(
+                        dispatch_config,
+                        pbft::Client::new,
                         config.num_group,
                         config.num_client,
                         config.duration,
@@ -125,6 +132,14 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                                 task.mode == "neo-bn",
                             );
                             dispatch.enable_ordered_multicast().run(&mut replica)
+                        }
+                        "pbft" => {
+                            let mut replica = pbft::Replica::new(
+                                dispatch.register(Host::Replica(replica.index)),
+                                replica.index,
+                                App::Null,
+                            );
+                            dispatch.run(&mut replica)
                         }
                         _ => unimplemented!(),
                     }

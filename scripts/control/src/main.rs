@@ -25,10 +25,10 @@ async fn main() {
         "nsl-node4.d2",
     ];
 
-    let mode = "unreplicated";
+    let mode = "pbft";
     let benchmark = BenchmarkClient {
-        num_group: 5,
-        num_client: 20,
+        num_group: 1,
+        num_client: 1,
         duration: Duration::from_secs(10),
     };
     let client_addrs = Vec::from_iter(

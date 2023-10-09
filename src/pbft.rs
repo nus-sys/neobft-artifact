@@ -106,30 +106,29 @@ impl crate::Client for Client {
             op,
         };
         // TODO
-        shared.context.send(To::replica(0), request)
+        shared.context.send(To::replica(0), request);
+        shared.resend_timer.set(&mut shared.context)
     }
 
     fn handle(&self, message: Self::Message) {
-        let Message::Reply(reply) = message else {
+        let Message::Reply(message) = message else {
             unimplemented!()
         };
         let shared = &mut *self.shared.lock().unwrap();
-        if reply.request_num != shared.request_num {
+        if message.request_num != shared.request_num {
             return;
         }
         let Some(invoke) = &mut shared.invoke else {
             return;
         };
-        let incoming_reply = reply.inner;
         invoke
             .replies
-            .insert(incoming_reply.replica_index, incoming_reply.clone());
+            .insert(message.replica_index, Reply::clone(&message));
         let num_match = invoke
             .replies
             .values()
             .filter(|reply| {
-                (reply.block_digest, &reply.result)
-                    == (incoming_reply.block_digest, &incoming_reply.result)
+                (reply.block_digest, &reply.result) == (message.block_digest, &message.result)
             })
             .count();
         assert!(num_match <= shared.context.config().num_faulty + 1);
@@ -137,7 +136,7 @@ impl crate::Client for Client {
             shared.resend_timer.unset(&mut shared.context);
             let invoke = shared.invoke.take().unwrap();
             let _op = invoke.op;
-            invoke.consume.apply(incoming_reply.result);
+            invoke.consume.apply(message.inner.result)
         }
     }
 }
@@ -188,6 +187,18 @@ impl Receivers for Replica {
     fn on_timer(&mut self, _: Host, _: crate::context::TimerId) {
         todo!()
     }
+
+    fn handle_loopback(&mut self, receiver: Host, message: Self::Message) {
+        assert_eq!(receiver, Host::Replica(self.index));
+        match message {
+            Message::PrePrepare(message) => {
+                self.pre_prepares.insert(message.block.digest(), message);
+            }
+            Message::Prepare(message) => self.insert_prepare(message),
+            Message::Commit(message) => self.insert_commit(message),
+            _ => unimplemented!(),
+        }
+    }
 }
 
 impl Replica {
@@ -195,7 +206,7 @@ impl Replica {
         (self.view_num as usize % self.context.config().num_replica) as _
     }
 
-    fn handle_request(&mut self, _remote: Host, request: Signed<Request>) {
+    fn handle_request(&mut self, _remote: Host, message: Signed<Request>) {
         if self.index != self.primary_index() {
             // TODO
             return;
@@ -203,57 +214,56 @@ impl Replica {
 
         // TODO check resend
 
-        self.requests.push(request.inner);
+        self.requests.push(message.inner);
         // TODO batching
         self.do_propose();
     }
 
-    fn handle_pre_prepare(&mut self, _remote: Host, pre_prepare: Signed<PrePrepare>) {
-        if pre_prepare.view_num < self.view_num {
+    fn handle_pre_prepare(&mut self, _remote: Host, message: Signed<PrePrepare>) {
+        if message.view_num < self.view_num {
             return;
         }
 
-        if pre_prepare.view_num > self.view_num {
+        if message.view_num > self.view_num {
             // TODO
             return;
         }
 
-        let block_digest = pre_prepare.block.digest();
-        self.pre_prepares.insert(block_digest, pre_prepare);
-        if self.index != self.primary_index() {
-            let prepare = Prepare {
-                view_num: self.view_num,
-                block_digest,
-                replica_index: self.index,
-            };
-            self.context.send(To::AllReplicaWithLoopback, prepare)
-        }
+        let block_digest = message.block.digest();
+        self.pre_prepares.insert(block_digest, message);
+        assert_ne!(self.index, self.primary_index());
+        let prepare = Prepare {
+            view_num: self.view_num,
+            block_digest,
+            replica_index: self.index,
+        };
+        self.context.send(To::AllReplicaWithLoopback, prepare)
     }
 
-    fn handle_prepare(&mut self, _remote: Host, prepare: Signed<Prepare>) {
-        if prepare.view_num < self.view_num {
+    fn handle_prepare(&mut self, _remote: Host, message: Signed<Prepare>) {
+        if message.view_num < self.view_num {
             return;
         }
 
-        if prepare.view_num > self.view_num {
+        if message.view_num > self.view_num {
             //
             return;
         }
 
-        self.insert_prepare(prepare);
+        self.insert_prepare(message);
     }
 
-    fn handle_commit(&mut self, _remote: Host, commit: Signed<Commit>) {
-        if commit.view_num < self.view_num {
+    fn handle_commit(&mut self, _remote: Host, message: Signed<Commit>) {
+        if message.view_num < self.view_num {
             return;
         }
 
-        if commit.view_num > self.view_num {
+        if message.view_num > self.view_num {
             //
             return;
         }
 
-        self.insert_commit(commit);
+        self.insert_commit(message);
     }
 
     fn do_propose(&mut self) {

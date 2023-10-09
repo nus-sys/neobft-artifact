@@ -148,7 +148,7 @@ impl Dispatch {
         let socket = Arc::new(
             self.runtime
                 .block_on(UdpSocket::bind(self.config.hosts[&receiver].addr))
-                .unwrap(),
+                .unwrap_or_else(|_| panic!("binding {:?}", self.config.hosts[&receiver].addr)),
         );
         socket.set_broadcast(true).unwrap();
         let context = Context {
