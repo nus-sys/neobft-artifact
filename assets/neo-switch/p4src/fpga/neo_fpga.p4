@@ -55,6 +55,16 @@ header udp_h {
     bit<16> checksum;
 }
 
+header neo_h {
+    bit<32> msg_num;
+    bit<32> unused0;
+    bit<32> unused1;
+    bit<32> unused2;
+    bit<32> unused3;
+    bit<32> digest0;
+    bit<32> digest1;
+}
+
 /*************************************************************************
  **************  I N G R E S S   P R O C E S S I N G   *******************
  *************************************************************************/
@@ -65,6 +75,7 @@ struct my_ingress_headers_t {
     ethernet_h   ethernet;
     ipv4_h       ipv4;
     udp_h        udp;
+    neo_h        neo;
 }
 
     /******  G L O B A L   I N G R E S S   M E T A D A T A  *********/
@@ -104,6 +115,14 @@ parser IngressParser(packet_in        pkt,
 
     state parse_udp {
         pkt.extract(hdr.udp);
+        transition select (hdr.udp.dst_port) {
+            60004: parse_neo;
+            default: accept;
+        }
+    }
+
+    state parse_neo {
+        pkt.extract(hdr.neo);
         transition accept;
     }
 
@@ -156,29 +175,23 @@ control Ingress(
             (0x649d99b1688e &&& 0xffffffffffff) : l2_forward(16);
             (0x649d99b1669a &&& 0xffffffffffff) : l2_forward(20);
             (0x08c0ebb6e7e4 &&& 0xffffffffffff) : l2_forward(36);
-            (0x01005e000000 &&& 0xffffff000000) : l2_forward(FPGA_PORT);
+            // (0x01005e000000 &&& 0xffffff000000) : l2_forward(FPGA_PORT);
             (0xffffffffffff &&& 0xffffffffffff) : broadcast();
         }
     }
 
-    # table multicast_decision {
-    #     key = {
-    #         hdr.ethernet.dst_addr : ternary;
-    #     }
-    #     actions = {
-    #         multicast;
-    #         NoAction;
-    #     }
-    #     const entries = {
-    #         (0x01005e000000 &&& 0xffffff000000) : multicast(998);
-    #     }
-    # }
-
-#ifdef MEASURE_LATENCY
-    bit<32> temp0 = 0;
-    bit<32> temp1 = 0;
-    bit<32> temp2 = 0;
-#endif
+    // table multicast_decision {
+    //     key = {
+    //         hdr.ethernet.dst_addr : ternary;
+    //     }
+    //     actions = {
+    //         multicast;
+    //         NoAction;
+    //     }
+    //     const entries = {
+    //         (0x01005e000000 &&& 0xffffff000000) : multicast(998);
+    //     }
+    // }
 
     apply {
 #ifdef FPGA_DEBUG
@@ -193,6 +206,11 @@ control Ingress(
         if(ig_intr_md.ingress_port == FPGA_PORT) {
             // multicast_decision.apply();
             multicast(998);
+        } else if (hdr.udp.isValid() && hdr.udp.dst_port == 60004) {
+            hdr.udp.checksum = 0; 
+            hdr.neo.digest0 = 0;
+            hdr.neo.digest1 = 0;
+            l2_forward(FPGA_PORT);
         } else {
             l2_forwarding_decision.apply();
         }

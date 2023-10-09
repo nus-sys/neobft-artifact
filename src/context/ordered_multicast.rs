@@ -1,5 +1,9 @@
 use bincode::Options;
-use k256::sha2::Digest;
+use k256::{
+    ecdsa::VerifyingKey,
+    schnorr::signature::DigestVerifier,
+    sha2::{Digest, Sha256},
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::{
@@ -30,7 +34,9 @@ pub struct OrderedMulticast<M> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OrderedMulticastSignature {
     HalfSipHash([[u8; 4]; 4]),
-    //
+    K256Linked,
+    K256(k256::ecdsa::Signature),
+    K256Unverified(k256::ecdsa::Signature),
 }
 
 impl<M> std::ops::Deref for OrderedMulticast<M> {
@@ -50,7 +56,33 @@ impl DigestHash for OrderedMulticastSignature {
                 hasher.write(&code2[..]);
                 hasher.write(&code3[..])
             }
+            Self::K256Linked => {} // TODO
+            Self::K256(signature) => hasher.write(&signature.to_bytes()),
+            Self::K256Unverified(signature) => hasher.write(&signature.to_bytes()),
         }
+    }
+}
+
+impl<M> OrderedMulticast<M> {
+    pub fn state(&self) -> Sha256
+    where
+        M: DigestHash,
+    {
+        use OrderedMulticastSignature::*;
+        assert!(matches!(
+            self.signature,
+            K256(_) | K256Unverified(_) | K256Linked
+        ));
+        let mut state = [0; 52];
+        state[0..32].copy_from_slice(&self.linked);
+        for (a, b) in state[16..48]
+            .iter_mut()
+            .zip(Hasher::sha256(&self.inner).finalize())
+        {
+            *a ^= b;
+        }
+        state[48..52].copy_from_slice(&self.seq_num.to_be_bytes());
+        Sha256::new().chain_update(state)
     }
 }
 
@@ -58,7 +90,7 @@ impl DigestHash for OrderedMulticastSignature {
 pub enum Variant {
     Unreachable,
     HalfSipHash(HalfSipHash),
-    K256,
+    K256(K256),
 }
 
 #[derive(Debug, Clone)]
@@ -67,9 +99,22 @@ pub struct HalfSipHash {
     //
 }
 
+#[derive(Debug, Clone)]
+pub struct K256 {
+    verifying_key: VerifyingKey,
+}
+
 impl Variant {
     pub fn new_half_sip_hash(index: ReplicaIndex) -> Self {
         Self::HalfSipHash(HalfSipHash { index })
+    }
+
+    const SWITCH_VERIFYING_KEY: &[u8] = include_bytes!("switch_verifying_key");
+
+    pub fn new_k256() -> Self {
+        Self::K256(K256 {
+            verifying_key: VerifyingKey::from_sec1_bytes(Self::SWITCH_VERIFYING_KEY).unwrap(),
+        })
     }
 
     pub fn deserialize<M>(&self, buf: impl AsRef<[u8]>) -> OrderedMulticast<M>
@@ -77,6 +122,15 @@ impl Variant {
         M: DeserializeOwned,
     {
         let buf = buf.as_ref();
+        // for (i, byte) in buf.iter().enumerate() {
+        //     print!("{byte:02x}");
+        //     if (i + 1) % 32 == 0 {
+        //         println!()
+        //     } else {
+        //         print!(" ")
+        //     }
+        // }
+        // println!();
         let mut seq_num = [0; 4];
         seq_num.copy_from_slice(&buf[0..4]);
         let signature = match self {
@@ -89,10 +143,21 @@ impl Variant {
                 codes[3].copy_from_slice(&buf[16..20]);
                 OrderedMulticastSignature::HalfSipHash(codes)
             }
-            Self::K256 => todo!(),
+            Self::K256(_) if buf[4..68].iter().all(|&b| b == 0) => {
+                OrderedMulticastSignature::K256Linked
+            }
+            Self::K256(_) => {
+                let mut signature = [0; 64];
+                signature.copy_from_slice(&buf[4..68]);
+                signature.reverse();
+                // println!("{:02x?}", signature);
+                OrderedMulticastSignature::K256(
+                    k256::ecdsa::Signature::from_bytes(&signature.into()).unwrap(),
+                )
+            }
         };
         let mut linked = [0; 32];
-        if matches!(self, Self::K256) {
+        if matches!(self, Self::K256(_)) {
             linked.copy_from_slice(&buf[68..100]);
         }
         OrderedMulticast {
@@ -124,8 +189,13 @@ impl Variant {
                 }
                 Ok(())
             }
-            (Self::K256, _) => todo!(),
-            // _ => unimplemented!(),
+            (Self::K256(_), OrderedMulticastSignature::K256Linked)
+            | (Self::K256(_), OrderedMulticastSignature::K256Unverified(_)) => Ok(()),
+            (Self::K256(k256), OrderedMulticastSignature::K256(signature)) => k256
+                .verifying_key
+                .verify_digest(message.state(), &signature)
+                .map_err(|_| Invalid::Public),
+            _ => unimplemented!(),
         }
     }
 }
