@@ -38,7 +38,7 @@ async fn main() {
     // });
     let benchmark = BenchmarkClient {
         num_group: 5,
-        num_client: 40,
+        num_client: 80,
         duration: Duration::from_secs(10),
     };
     let client_addrs = Vec::from_iter(

@@ -5,14 +5,14 @@ use std::{
     time::Duration,
 };
 
-use k256::sha2::{Digest, Sha256};
+use k256::sha2::Digest;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     client::BoxedConsume,
     common::{Request, Timer},
     context::{
-        crypto::{DigestHash, Hasher, Sign, Signed, Verify},
+        crypto::{DigestHash, Sign, Signed, Verify},
         ordered_multicast::{
             OrderedMulticast,
             Signature::{K256Unverified, K256},
@@ -42,8 +42,8 @@ pub struct Reply {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Confirm {
-    digest: [u8; 32],
-    op_nums: RangeInclusive<u32>,
+    op_num: u32,
+    state: [u8; 32],
     replica_index: ReplicaIndex,
 }
 
@@ -174,7 +174,7 @@ pub struct Replica {
     remote_confirmed_nums: HashMap<ReplicaIndex, u32>,
     // TODO persistent confirm as certificates
     reordering_confirms1: HashMap<u32, Vec<Signed<Confirm>>>,
-    reordering_confirms2: HashMap<(ReplicaIndex, u32), Signed<Confirm>>,
+    // reordering_confirms2: HashMap<(ReplicaIndex, u32), Signed<Confirm>>,
 }
 
 impl Replica {
@@ -200,8 +200,8 @@ impl Replica {
             confirmed_num: 0,
             local_confirmed_num: 0,
             remote_confirmed_nums,
-            reordering_confirms2: Default::default(),
             reordering_confirms1: Default::default(),
+            // reordering_confirms2: Default::default(),
         }
     }
 }
@@ -243,10 +243,9 @@ impl Receivers for Replica {
             unreachable!()
         };
         // println!("> confirm #s {:?}", confirm.op_nums);
-        let evicted = self
-            .remote_confirmed_nums
-            .insert(self.index, *confirm.op_nums.end());
-        assert_eq!(evicted.unwrap() + 1, *confirm.op_nums.start());
+        self.remote_confirmed_nums
+            .insert(self.index, confirm.op_num);
+        // assert_eq!(evicted.unwrap() + 1, *confirm.op_nums.start());
         self.do_update_confirm_num();
 
         // if self.ordered_num >= self.local_confirmed_num + Self::CONFIRM_THRESHOLD {
@@ -330,9 +329,9 @@ impl Replica {
         assert!(self.confirm);
         // println!("> confirm #{} {:?}", message.replica_index, message.op_nums);
 
-        if *message.op_nums.end() > self.ordered_num {
+        if message.op_num > self.ordered_num {
             self.reordering_confirms1
-                .entry(*message.op_nums.end())
+                .entry(message.op_num)
                 .or_default()
                 .push(message);
             return;
@@ -399,54 +398,39 @@ impl Replica {
     }
 
     fn do_send_confirm(&mut self) {
-        let op_nums = self.local_confirmed_num + 1..=self.ordered_num;
-        // println!(
-        //     "* op {op_nums:?} remote[local] {}",
-        //     self.remote_confirmed_nums[&self.index]
-        // );
-        if !op_nums.is_empty() && *op_nums.start() == self.remote_confirmed_nums[&self.index] + 1 {
+        if self.verified_num > self.local_confirmed_num
+            && self.remote_confirmed_nums[&self.index] == self.local_confirmed_num
+        {
             // println!("confirming {op_nums:?}");
-            let mut digest = Sha256::new();
-            for request in &I(&self.requests)[op_nums.clone()] {
-                Hasher::sha256_update(&request.inner, &mut digest);
-            }
+            // let mut digest = Sha256::new();
+            // for request in &I(&self.requests)[op_nums.clone()] {
+            //     Hasher::sha256_update(&request.inner, &mut digest);
+            // }
             let confirm = Confirm {
-                digest: digest.finalize().into(),
-                op_nums,
+                op_num: self.verified_num,
+                state: I(&self.requests)[self.verified_num]
+                    .state()
+                    .finalize()
+                    .into(),
                 replica_index: self.index,
             };
             self.context.send(To::AllReplicaWithLoopback, confirm);
             // TODO set up resending confirm
-            self.local_confirmed_num = self.ordered_num
+            self.local_confirmed_num = self.verified_num
         }
     }
 
     fn do_confirm1(&mut self, message: Signed<Confirm>) {
-        let confirmed_num = self.remote_confirmed_nums[&message.replica_index];
-        assert!(*message.op_nums.start() > confirmed_num);
-        if *message.op_nums.start() != confirmed_num + 1 {
-            self.reordering_confirms2
-                .insert((message.replica_index, *message.op_nums.start()), message);
-            return;
-        }
-        let index = message.replica_index;
-        self.do_confirm2(message);
-        while let Some(message) = self
-            .reordering_confirms2
-            .remove(&(index, self.remote_confirmed_nums[&index] + 1))
-        {
+        if self.remote_confirmed_nums[&message.replica_index] < message.op_num {
             self.do_confirm2(message)
         }
     }
 
     fn do_confirm2(&mut self, message: Signed<Confirm>) {
-        let mut local_digest = Sha256::new();
-        for request in &I(&self.requests)[message.op_nums.clone()] {
-            Hasher::sha256_update(&request.inner, &mut local_digest)
-        }
-        assert_eq!(<[_; 32]>::from(local_digest.finalize()), message.digest);
+        let state = I(&self.requests)[message.op_num].state().finalize();
+        assert_eq!(<[_; 32]>::from(state), message.state);
         self.remote_confirmed_nums
-            .insert(message.replica_index, *message.op_nums.end());
+            .insert(message.replica_index, message.op_num);
         self.do_update_confirm_num()
     }
 
@@ -490,9 +474,8 @@ impl DigestHash for Reply {
 
 impl DigestHash for Confirm {
     fn hash(&self, hasher: &mut impl std::hash::Hasher) {
-        hasher.write(&self.digest);
-        hasher.write_u32(*self.op_nums.start());
-        hasher.write_u32(*self.op_nums.end());
+        hasher.write_u32(self.op_num);
+        hasher.write(&self.state);
         hasher.write_u8(self.replica_index)
     }
 }
