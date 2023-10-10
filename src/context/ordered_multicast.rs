@@ -277,6 +277,8 @@ impl<M> Delegate<M> {
                 let message = into(message);
                 message.verify(verifier).unwrap();
                 receivers.handle(Host::Multicast, remote, message)
+            } else {
+                // println!("! no signed ordered multicast buffer")
             }
         }
     }

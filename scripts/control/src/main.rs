@@ -26,19 +26,19 @@ async fn main() {
     ];
 
     let mode = "neo-pk";
-    // let app = App::Null;
-    let app = App::Ycsb(control_messages::YcsbConfig {
-        num_key: 10 * 1000,
-        num_value: 100 * 1000,
-        key_len: 64,
-        value_len: 128,
-        read_portion: 50,
-        update_portion: 40,
-        rmw_portion: 10,
-    });
+    let app = App::Null;
+    // let app = App::Ycsb(control_messages::YcsbConfig {
+    //     num_key: 10 * 1000,
+    //     num_value: 100 * 1000,
+    //     key_len: 64,
+    //     value_len: 128,
+    //     read_portion: 50,
+    //     update_portion: 40,
+    //     rmw_portion: 10,
+    // });
     let benchmark = BenchmarkClient {
         num_group: 5,
-        num_client: 40,
+        num_client: 60,
         duration: Duration::from_secs(10),
     };
     let client_addrs = Vec::from_iter(
@@ -53,7 +53,7 @@ async fn main() {
         replica_addrs: replica_addrs.clone(),
         multicast_addr,
         num_faulty,
-        drop_rate: 0.,
+        drop_rate: 1e-3,
         seed: 3603269_3604874,
         role,
     };

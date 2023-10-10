@@ -13,7 +13,10 @@ use crate::{
     common::{Request, Timer},
     context::{
         crypto::{DigestHash, Hasher, Sign, Signed, Verify},
-        ordered_multicast::OrderedMulticast,
+        ordered_multicast::{
+            OrderedMulticast,
+            Signature::{K256Unverified, K256},
+        },
         ClientIndex, Host, OrderedMulticastReceivers, Receivers, ReplicaIndex, To,
     },
     App, Context,
@@ -245,9 +248,9 @@ impl Receivers for Replica {
         assert_eq!(evicted.unwrap() + 1, *confirm.op_nums.start());
         self.do_update_confirm_num();
 
-        if self.ordered_num >= self.local_confirmed_num + Self::CONFIRM_THRESHOLD {
-            self.do_send_confirm()
-        }
+        // if self.ordered_num >= self.local_confirmed_num + Self::CONFIRM_THRESHOLD {
+        //     self.do_send_confirm()
+        // }
     }
 
     fn on_timer(&mut self, _: Host, _: crate::context::TimerId) {
@@ -266,12 +269,15 @@ impl OrderedMulticastReceivers for Replica {
 }
 
 impl Replica {
-    pub const CONFIRM_THRESHOLD: u32 = 100;
+    // pub const CONFIRM_THRESHOLD: u32 = 100;
     pub const QUERY_THRESHOLD: usize = 100;
 
     fn handle_request(&mut self, _remote: Host, message: OrderedMulticast<Request>) {
         // Jialin's trick to avoid resetting switch for every run
         let op_num = message.seq_num - *self.seq_num_offset.get_or_insert(message.seq_num) + 1;
+        if message.verified() {
+            // println!(">> verified {}", op_num)
+        }
         // eager querying may defeat the slow original message...
         // assert!(op_num >= next_op_num);
         if op_num < self.ordered_num + 1 {
@@ -279,27 +285,31 @@ impl Replica {
         }
 
         if op_num != self.ordered_num + 1 {
+            // println!("! miss {}", self.ordered_num + 1);
             self.reordering_requests.insert(op_num, message);
             // reordering should be resolved within millisecond
-            assert!(self.reordering_requests.len() < 300);
+            assert!(self.reordering_requests.len() < Self::QUERY_THRESHOLD + 1000);
             if self.reordering_requests.len() == Self::QUERY_THRESHOLD {
                 self.do_query()
             }
             return;
         }
 
-        let verified = message.verified();
+        let mut verified_num = self.verified_num;
         self.ordered_num += 1;
+        if message.verified() {
+            verified_num = self.ordered_num
+        }
         self.requests.push(message);
         while let Some(request) = self.reordering_requests.remove(&(self.ordered_num + 1)) {
             self.ordered_num += 1;
+            if request.verified() {
+                verified_num = self.ordered_num
+            }
             self.requests.push(request);
         }
 
-        if !verified {
-            return;
-        }
-        for op_num in self.verified_num + 1..=self.ordered_num {
+        for op_num in self.verified_num + 1..=verified_num {
             if !self.confirm {
                 self.do_commit(op_num);
             } else if let Some(confirms) = self.reordering_confirms2.remove(&op_num) {
@@ -308,11 +318,11 @@ impl Replica {
                 }
             }
         }
-        if self.confirm && self.ordered_num >= self.local_confirmed_num + Self::CONFIRM_THRESHOLD {
-            self.do_send_confirm()
-        }
+        // if self.confirm && self.ordered_num >= self.local_confirmed_num + Self::CONFIRM_THRESHOLD {
+        //     self.do_send_confirm()
+        // }
 
-        self.verified_num = self.ordered_num
+        self.verified_num = verified_num
     }
 
     fn handle_confirm(&mut self, _remote: Host, message: Signed<Confirm>) {
@@ -335,7 +345,7 @@ impl Replica {
     }
 
     fn handle_query(&mut self, _remote: Host, message: Signed<Query>) {
-        let request = if message.op_num <= self.ordered_num {
+        let mut request = if message.op_num <= self.ordered_num {
             I(&self.requests)[message.op_num].clone()
         } else if let Some(request) = self.reordering_requests.get(&message.op_num) {
             request.clone()
@@ -343,6 +353,9 @@ impl Replica {
             println!("! query missing {}", message.op_num);
             return;
         };
+        if let &K256Unverified(signature) = &request.signature {
+            request.signature = K256(signature)
+        }
         // println!("< query replied {}", message.op_num);
         let query_ok = QueryOk {
             op_num: message.op_num,
@@ -355,7 +368,13 @@ impl Replica {
     fn handle_query_ok(&mut self, remote: Host, message: QueryOk) {
         if message.op_num == self.ordered_num + 1 {
             // println!("> query done {}", message.op_num);
+            // let ordered_num = self.ordered_num;
+            // let verified_num = self.verified_num;
             self.handle_request(remote, message.request);
+            // println!(
+            //     "> ordered {ordered_num} -> {} verified {verified_num} -> {}",
+            //     self.ordered_num, self.verified_num
+            // );
             if self.reordering_requests.len() >= Self::QUERY_THRESHOLD {
                 self.do_query()
             }

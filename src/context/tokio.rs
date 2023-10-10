@@ -211,6 +211,18 @@ impl Dispatch {
         let mut delegate = self.variant.delegate();
         let mut pace_count = 1;
         loop {
+            if pace_count == 0 {
+                // println!("* pace");
+                delegate.on_pace(receivers, &self.verifier, &into);
+                receivers.on_pace();
+                pace_count = if self.event.0.is_empty() {
+                    1
+                } else {
+                    self.event.0.len()
+                };
+                // println!("* pace count {pace_count}");
+            }
+
             assert!(self.event.1.len() < 4096, "receivers overwhelmed");
             let event = flume::Selector::new()
                 .recv(&self.event.1, Result::unwrap)
@@ -246,15 +258,6 @@ impl Dispatch {
                 }
                 Event::Timer(receiver, id) => {
                     receivers.on_timer(receiver, super::TimerId::Tokio(id))
-                }
-            }
-            if pace_count == 0 {
-                delegate.on_pace(receivers, &self.verifier, &into);
-                receivers.on_pace();
-                pace_count = if self.event.0.is_empty() {
-                    1
-                } else {
-                    self.event.0.len()
                 }
             }
         }
