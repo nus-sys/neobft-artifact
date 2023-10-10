@@ -34,6 +34,17 @@ pub enum Signature {
     Hmac([u8; 32]),
 }
 
+impl<M: DigestHash> DigestHash for Signed<M> {
+    fn hash(&self, hasher: &mut impl std::hash::Hasher) {
+        self.inner.hash(hasher);
+        match &self.signature {
+            Signature::Plain => {} // TODO
+            Signature::K256(signature) => hasher.write(&signature.to_bytes()),
+            Signature::Hmac(codes) => hasher.write(codes),
+        }
+    }
+}
+
 pub enum Hasher {
     Sha256(Sha256),
     Hmac(Hmac<Sha256>),

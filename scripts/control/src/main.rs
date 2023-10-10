@@ -25,7 +25,7 @@ async fn main() {
         "nsl-node4.d2",
     ];
 
-    let mode = "neo-bn";
+    let mode = "neo-hm";
     let app = App::Null;
     // let app = App::Ycsb(control_messages::YcsbConfig {
     //     num_key: 10 * 1000,

@@ -116,11 +116,11 @@ impl crate::Client for Client {
     }
 
     fn handle(&self, message: Self::Message) {
-        let Message::Reply(reply) = message else {
+        let Message::Reply(message) = message else {
             unimplemented!()
         };
         let shared = &mut *self.shared.lock().unwrap();
-        if reply.request_num != shared.request_num {
+        if message.request_num != shared.request_num {
             return;
         }
         let Some(invoke) = &mut shared.invoke else {
@@ -128,8 +128,7 @@ impl crate::Client for Client {
         };
         invoke
             .replies
-            .insert(reply.replica_index, Reply::clone(&reply));
-        let incoming_reply = reply;
+            .insert(message.replica_index, Reply::clone(&message));
         if invoke
             .replies
             .values()
@@ -138,11 +137,7 @@ impl crate::Client for Client {
                     reply.epoch_num, //
                     reply.seq_num,
                     &reply.result,
-                ) == (
-                    incoming_reply.epoch_num,
-                    incoming_reply.seq_num,
-                    &incoming_reply.result,
-                )
+                ) == (message.epoch_num, message.seq_num, &message.result)
             })
             .count()
             >= shared.context.config().num_replica - shared.context.config().num_faulty
@@ -150,7 +145,7 @@ impl crate::Client for Client {
             shared.resend_timer.unset(&mut shared.context);
             let invoke = shared.invoke.take().unwrap();
             let _op = invoke.op;
-            invoke.consume.apply(incoming_reply.inner.result)
+            invoke.consume.apply(message.inner.result)
         }
     }
 }
