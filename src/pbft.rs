@@ -200,7 +200,7 @@ impl Receivers for Replica {
         }
     }
 
-    fn on_idle(&mut self) {
+    fn on_pace(&mut self) {
         if self.index == self.primary_index() && !self.requests.is_empty() {
             self.do_propose()
         }

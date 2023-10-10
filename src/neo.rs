@@ -254,7 +254,7 @@ impl Receivers for Replica {
         unreachable!()
     }
 
-    fn on_idle(&mut self) {
+    fn on_pace(&mut self) {
         if self.confirm {
             self.do_send_confirm()
         }

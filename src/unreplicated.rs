@@ -150,7 +150,7 @@ impl Receivers for Replica {
         unreachable!()
     }
 
-    fn on_idle(&mut self) {
+    fn on_pace(&mut self) {
         if self.make_blocks && !self.requests.is_empty() {
             let block = self.chain.propose(&mut self.requests);
             assert!(block.digest() != Chain::GENESIS_DIGEST);

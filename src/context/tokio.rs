@@ -8,8 +8,8 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 use bincode::Options;
 use rand::Rng;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tokio::{net::UdpSocket, runtime::Handle, task::JoinHandle};
-use tokio_util::bytes::Bytes;
+use tokio::{net::UdpSocket, runtime::Handle};
+use tokio_util::{bytes::Bytes, sync::CancellationToken};
 
 use crate::context::crypto::Verifier;
 
@@ -36,7 +36,7 @@ pub struct Context {
     source: Host,
     signer: Signer,
     timer_id: TimerId,
-    timer_tasks: HashMap<TimerId, JoinHandle<()>>,
+    timer_tasks: HashMap<TimerId, CancellationToken>,
     event: flume::Sender<Event>,
     rdv_event: flume::Sender<Event>,
 }
@@ -96,18 +96,26 @@ impl Context {
         let id = self.timer_id;
         let event = self.rdv_event.clone();
         let source = self.source;
-        let task = self.runtime.spawn(async move {
+        let cancel = CancellationToken::new();
+        self.timer_tasks.insert(id, cancel.clone());
+        self.runtime.spawn(async move {
             loop {
-                tokio::time::sleep(duration).await;
+                let _ = tokio::time::timeout(duration, cancel.cancelled()).await;
+                if cancel.is_cancelled() {
+                    return;
+                }
                 event.send_async(Event::Timer(source, id)).await.unwrap()
             }
         });
-        self.timer_tasks.insert(id, task);
         id
     }
 
+    // only works in current thread runtime
+    // in multi-thread runtime, there will always be a chance that the timer task wakes concurrent
+    // to this `unset` call, then this call has no way to prevent false alarm
+    // TODO mutual exclusive between `Receivers` callbacks and timer tasks
     pub fn unset(&mut self, id: TimerId) {
-        self.timer_tasks.remove(&id).unwrap().abort()
+        self.timer_tasks.remove(&id).unwrap().cancel()
     }
 }
 
@@ -194,11 +202,15 @@ impl Dispatch {
         M: DeserializeOwned + Verify,
         N: DeserializeOwned + DigestHash,
     {
+        let deserialize = |buf: &_| {
+            bincode::options()
+                .allow_trailing_bytes()
+                .deserialize::<M>(buf)
+                .unwrap()
+        };
+        let mut pace_count = 1;
         loop {
             assert!(self.event.1.len() < 4096, "receivers overwhelmed");
-            if self.event.1.is_empty() {
-                receivers.on_idle()
-            }
             let event = flume::Selector::new()
                 .recv(&self.event.1, Result::unwrap)
                 .recv(&self.rdv_event.1, Result::unwrap)
@@ -206,24 +218,20 @@ impl Dispatch {
             match event {
                 Event::Stop => break,
                 Event::Message(receiver, remote, message) => {
+                    pace_count -= 1;
                     if self.drop_rate != 0. && rand::thread_rng().gen_bool(self.drop_rate) {
                         continue;
                     }
-                    let message = bincode::options()
-                        .allow_trailing_bytes()
-                        .deserialize::<M>(&message)
-                        .unwrap();
+                    let message = deserialize(&message);
                     message.verify(&self.verifier).unwrap();
                     receivers.handle(receiver, remote, message)
                 }
                 Event::LoopbackMessage(receiver, message) => {
-                    let message = bincode::options()
-                        .allow_trailing_bytes()
-                        .deserialize::<M>(&message)
-                        .unwrap();
-                    receivers.handle_loopback(receiver, message)
+                    pace_count -= 1;
+                    receivers.handle_loopback(receiver, deserialize(&message))
                 }
                 Event::OrderedMulticastMessage(remote, message) => {
+                    pace_count -= 1;
                     if self.drop_rate != 0. && rand::thread_rng().gen_bool(self.drop_rate) {
                         continue;
                     }
@@ -233,6 +241,14 @@ impl Dispatch {
                 }
                 Event::Timer(receiver, id) => {
                     receivers.on_timer(receiver, super::TimerId::Tokio(id))
+                }
+            }
+            if pace_count == 0 {
+                receivers.on_pace();
+                pace_count = if self.event.0.is_empty() {
+                    1
+                } else {
+                    self.event.0.len()
                 }
             }
         }
@@ -342,14 +358,14 @@ mod tests {
     use super::*;
 
     fn false_alarm() {
-        // let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
+        // let runtime = tokio::runtime::Builder::new_multi_thread()
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
         let _enter = runtime.enter();
         let config = Config::new(
-            [(Host::Client(0), "127.0.0.1:10000".parse().unwrap())]
+            [(Host::Replica(0), "127.0.0.1:10000".parse().unwrap())]
                 .into_iter()
                 .collect(),
             0,
@@ -369,7 +385,7 @@ mod tests {
             }
         }
 
-        let mut context = dispatch.register(Host::Client(0));
+        let mut context = dispatch.register(Host::Replica(0));
         let id = context.set(Duration::from_millis(10));
 
         let handle = dispatch.handle();
@@ -379,8 +395,8 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(9)).await;
                 event
                     .send_async(Event::Message(
-                        Host::Client(0),
                         Host::Replica(0),
+                        Host::Client(0),
                         bincode::options().serialize(&M).unwrap(),
                     ))
                     .await

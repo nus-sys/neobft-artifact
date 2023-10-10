@@ -23,7 +23,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 enum AppState {
-    Idle,
+    Idle, // TODO exit on timeout
     Panicked,
 
     BenchmarkClientRunning,
