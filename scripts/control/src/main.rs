@@ -25,7 +25,7 @@ async fn main() {
         "nsl-node4.d2",
     ];
 
-    let mode = "zyzzyva-f";
+    let mode = "minbft";
     let app = App::Null;
     // let app = App::Ycsb(control_messages::YcsbConfig {
     //     num_key: 10 * 1000,
@@ -38,7 +38,7 @@ async fn main() {
     // });
     let benchmark = BenchmarkClient {
         num_group: 5,
-        num_client: 10,
+        num_client: 40,
         duration: Duration::from_secs(10),
     };
     let client_addrs = Vec::from_iter(
@@ -76,6 +76,10 @@ async fn main() {
             break;
         }
         if mode != "zyzzyva" && index >= replica_addrs.len() - num_faulty {
+            break;
+        }
+        #[allow(clippy::int_plus_one)]
+        if mode == "minbft" && index >= num_faulty + 1 {
             break;
         }
         sessions.push(spawn(host_session(

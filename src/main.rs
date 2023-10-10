@@ -16,7 +16,7 @@ use permissioned_blockchain::{
     client::run_benchmark,
     common::set_affinity,
     context::{ordered_multicast::Variant, tokio::Dispatch, Config, Host},
-    neo, pbft, unreplicated, zyzzyva, App,
+    hotstuff, minbft, neo, pbft, unreplicated, zyzzyva, App,
 };
 use rand::{rngs::StdRng, SeedableRng};
 use tokio::task::JoinHandle;
@@ -92,6 +92,22 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                         |context, index| {
                             zyzzyva::Client::new(context, index, task.mode == "zyzzyva-f")
                         },
+                        config.num_group,
+                        config.num_client,
+                        config.duration,
+                        workload,
+                    ),
+                    "hotstuff" => run_benchmark(
+                        dispatch_config,
+                        hotstuff::Client::new,
+                        config.num_group,
+                        config.num_client,
+                        config.duration,
+                        workload,
+                    ),
+                    "minbft" => run_benchmark(
+                        dispatch_config,
+                        minbft::Client::new,
                         config.num_group,
                         config.num_client,
                         config.duration,
@@ -178,6 +194,22 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                         }
                         "zyzzyva" | "zyzzyva-f" => {
                             let mut replica = zyzzyva::Replica::new(
+                                dispatch.register(Host::Replica(replica.index)),
+                                replica.index,
+                                app,
+                            );
+                            dispatch.run(&mut replica)
+                        }
+                        "hotstuff" => {
+                            let mut replica = hotstuff::Replica::new(
+                                dispatch.register(Host::Replica(replica.index)),
+                                replica.index,
+                                app,
+                            );
+                            dispatch.run(&mut replica)
+                        }
+                        "minbft" => {
+                            let mut replica = minbft::Replica::new(
                                 dispatch.register(Host::Replica(replica.index)),
                                 replica.index,
                                 app,
