@@ -25,7 +25,7 @@ async fn main() {
         "nsl-node4.d2",
     ];
 
-    let mode = "neo-pk";
+    let mode = "neo-bn";
     let app = App::Null;
     // let app = App::Ycsb(control_messages::YcsbConfig {
     //     num_key: 10 * 1000,
@@ -38,7 +38,7 @@ async fn main() {
     // });
     let benchmark = BenchmarkClient {
         num_group: 5,
-        num_client: 60,
+        num_client: 40,
         duration: Duration::from_secs(10),
     };
     let client_addrs = Vec::from_iter(
@@ -53,7 +53,8 @@ async fn main() {
         replica_addrs: replica_addrs.clone(),
         multicast_addr,
         num_faulty,
-        drop_rate: 1e-3,
+        drop_rate: 0.,
+        // drop_rate: 1e-3,
         seed: 3603269_3604874,
         role,
     };

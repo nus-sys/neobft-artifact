@@ -173,8 +173,8 @@ pub struct Replica {
     local_confirmed_num: u32,
     remote_confirmed_nums: HashMap<ReplicaIndex, u32>,
     // TODO persistent confirm as certificates
-    reordering_confirms1: HashMap<(ReplicaIndex, u32), Signed<Confirm>>,
-    reordering_confirms2: HashMap<u32, Vec<Signed<Confirm>>>,
+    reordering_confirms1: HashMap<u32, Vec<Signed<Confirm>>>,
+    reordering_confirms2: HashMap<(ReplicaIndex, u32), Signed<Confirm>>,
 }
 
 impl Replica {
@@ -200,8 +200,8 @@ impl Replica {
             confirmed_num: 0,
             local_confirmed_num: 0,
             remote_confirmed_nums,
-            reordering_confirms1: Default::default(),
             reordering_confirms2: Default::default(),
+            reordering_confirms1: Default::default(),
         }
     }
 }
@@ -242,6 +242,7 @@ impl Receivers for Replica {
         let Message::Confirm(confirm) = message else {
             unreachable!()
         };
+        // println!("> confirm #s {:?}", confirm.op_nums);
         let evicted = self
             .remote_confirmed_nums
             .insert(self.index, *confirm.op_nums.end());
@@ -275,9 +276,9 @@ impl Replica {
     fn handle_request(&mut self, _remote: Host, message: OrderedMulticast<Request>) {
         // Jialin's trick to avoid resetting switch for every run
         let op_num = message.seq_num - *self.seq_num_offset.get_or_insert(message.seq_num) + 1;
-        if message.verified() {
-            // println!(">> verified {}", op_num)
-        }
+        // if message.verified() {
+        //     println!(">> verified {}", op_num)
+        // }
         // eager querying may defeat the slow original message...
         // assert!(op_num >= next_op_num);
         if op_num < self.ordered_num + 1 {
@@ -312,9 +313,9 @@ impl Replica {
         for op_num in self.verified_num + 1..=verified_num {
             if !self.confirm {
                 self.do_commit(op_num);
-            } else if let Some(confirms) = self.reordering_confirms2.remove(&op_num) {
+            } else if let Some(confirms) = self.reordering_confirms1.remove(&op_num) {
                 for confirm in confirms {
-                    self.do_confirm2(confirm)
+                    self.do_confirm1(confirm)
                 }
             }
         }
@@ -327,21 +328,16 @@ impl Replica {
 
     fn handle_confirm(&mut self, _remote: Host, message: Signed<Confirm>) {
         assert!(self.confirm);
-        let confirmed_num = self.remote_confirmed_nums[&message.replica_index];
-        assert!(*message.op_nums.start() > confirmed_num);
-        if *message.op_nums.start() != confirmed_num + 1 {
+        // println!("> confirm #{} {:?}", message.replica_index, message.op_nums);
+
+        if *message.op_nums.end() > self.ordered_num {
             self.reordering_confirms1
-                .insert((message.replica_index, *message.op_nums.start()), message);
+                .entry(*message.op_nums.end())
+                .or_default()
+                .push(message);
             return;
         }
-        let index = message.replica_index;
-        self.do_confirm1(message);
-        while let Some(message) = self
-            .reordering_confirms1
-            .remove(&(index, self.remote_confirmed_nums[&index] + 1))
-        {
-            self.do_confirm1(message)
-        }
+        self.do_confirm1(message)
     }
 
     fn handle_query(&mut self, _remote: Host, message: Signed<Query>) {
@@ -404,6 +400,10 @@ impl Replica {
 
     fn do_send_confirm(&mut self) {
         let op_nums = self.local_confirmed_num + 1..=self.ordered_num;
+        // println!(
+        //     "* op {op_nums:?} remote[local] {}",
+        //     self.remote_confirmed_nums[&self.index]
+        // );
         if !op_nums.is_empty() && *op_nums.start() == self.remote_confirmed_nums[&self.index] + 1 {
             // println!("confirming {op_nums:?}");
             let mut digest = Sha256::new();
@@ -422,14 +422,21 @@ impl Replica {
     }
 
     fn do_confirm1(&mut self, message: Signed<Confirm>) {
-        if *message.op_nums.end() > self.ordered_num {
+        let confirmed_num = self.remote_confirmed_nums[&message.replica_index];
+        assert!(*message.op_nums.start() > confirmed_num);
+        if *message.op_nums.start() != confirmed_num + 1 {
             self.reordering_confirms2
-                .entry(*message.op_nums.end())
-                .or_default()
-                .push(message);
+                .insert((message.replica_index, *message.op_nums.start()), message);
             return;
         }
-        self.do_confirm2(message)
+        let index = message.replica_index;
+        self.do_confirm2(message);
+        while let Some(message) = self
+            .reordering_confirms2
+            .remove(&(index, self.remote_confirmed_nums[&index] + 1))
+        {
+            self.do_confirm2(message)
+        }
     }
 
     fn do_confirm2(&mut self, message: Signed<Confirm>) {
@@ -448,12 +455,11 @@ impl Replica {
         confirmed_nums.sort_unstable();
         let new_confirmed_num = confirmed_nums[self.context.config().num_faulty];
         assert!(new_confirmed_num >= self.confirmed_num);
-        if new_confirmed_num > self.confirmed_num {
-            for op_num in self.confirmed_num + 1..=new_confirmed_num {
-                self.do_commit(op_num)
-            }
-            self.confirmed_num = new_confirmed_num;
+        // println!("* confirmed {} -> {new_confirmed_num}", self.confirmed_num);
+        for op_num in self.confirmed_num + 1..=new_confirmed_num {
+            self.do_commit(op_num)
         }
+        self.confirmed_num = new_confirmed_num;
     }
 
     fn do_query(&mut self) {
