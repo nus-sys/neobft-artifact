@@ -7,8 +7,8 @@ use k256::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::{
-    crypto::{DigestHash, Hasher, Invalid},
-    ReplicaIndex,
+    crypto::{DigestHash, Hasher, Invalid, Verifier, Verify},
+    Host, Receivers, ReplicaIndex,
 };
 
 pub fn serialize(message: &(impl Serialize + DigestHash)) -> Vec<u8> {
@@ -26,13 +26,13 @@ pub fn serialize(message: &(impl Serialize + DigestHash)) -> Vec<u8> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderedMulticast<M> {
     pub seq_num: u32,
-    pub signature: OrderedMulticastSignature,
+    pub signature: Signature,
     pub linked: [u8; 32],
     pub inner: M,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum OrderedMulticastSignature {
+pub enum Signature {
     HalfSipHash([[u8; 4]; 4]),
     K256Linked,
     K256(k256::ecdsa::Signature),
@@ -47,7 +47,7 @@ impl<M> std::ops::Deref for OrderedMulticast<M> {
     }
 }
 
-impl DigestHash for OrderedMulticastSignature {
+impl DigestHash for Signature {
     fn hash(&self, hasher: &mut impl std::hash::Hasher) {
         match self {
             Self::HalfSipHash([code0, code1, code2, code3]) => {
@@ -65,7 +65,7 @@ impl DigestHash for OrderedMulticastSignature {
 
 impl<M> OrderedMulticast<M> {
     pub fn verified(&self) -> bool {
-        use OrderedMulticastSignature::*;
+        use Signature::*;
         matches!(self.signature, HalfSipHash(_) | K256(_))
     }
 
@@ -73,7 +73,7 @@ impl<M> OrderedMulticast<M> {
     where
         M: DigestHash,
     {
-        use OrderedMulticastSignature::*;
+        use Signature::*;
         assert!(matches!(
             self.signature,
             K256(_) | K256Unverified(_) | K256Linked
@@ -146,19 +146,15 @@ impl Variant {
                 codes[1].copy_from_slice(&buf[8..12]);
                 codes[2].copy_from_slice(&buf[12..16]);
                 codes[3].copy_from_slice(&buf[16..20]);
-                OrderedMulticastSignature::HalfSipHash(codes)
+                Signature::HalfSipHash(codes)
             }
-            Self::K256(_) if buf[4..68].iter().all(|&b| b == 0) => {
-                OrderedMulticastSignature::K256Linked
-            }
+            Self::K256(_) if buf[4..68].iter().all(|&b| b == 0) => Signature::K256Linked,
             Self::K256(_) => {
                 let mut signature = [0; 64];
                 signature.copy_from_slice(&buf[4..68]);
                 signature.reverse();
                 // println!("{:02x?}", signature);
-                OrderedMulticastSignature::K256(
-                    k256::ecdsa::Signature::from_bytes(&signature.into()).unwrap(),
-                )
+                Signature::K256(k256::ecdsa::Signature::from_bytes(&signature.into()).unwrap())
             }
         };
         let mut linked = [0; 32];
@@ -183,7 +179,7 @@ impl Variant {
         let digest = <[_; 32]>::from(Hasher::sha256(&**message).finalize());
         match (self, message.signature) {
             (Self::Unreachable, _) => unreachable!(),
-            (Self::HalfSipHash(variant), OrderedMulticastSignature::HalfSipHash(codes)) => {
+            (Self::HalfSipHash(variant), Signature::HalfSipHash(codes)) => {
                 // TODO tentatively mock the HalfSipHash for SipHash
                 use std::hash::BuildHasher;
                 if std::collections::hash_map::RandomState::new().hash_one(digest) == 0 {
@@ -194,13 +190,94 @@ impl Variant {
                 }
                 Ok(())
             }
-            (Self::K256(_), OrderedMulticastSignature::K256Linked)
-            | (Self::K256(_), OrderedMulticastSignature::K256Unverified(_)) => Ok(()),
-            (Self::K256(k256), OrderedMulticastSignature::K256(signature)) => k256
+            (Self::K256(_), Signature::K256Linked)
+            | (Self::K256(_), Signature::K256Unverified(_)) => Ok(()),
+            (Self::K256(k256), Signature::K256(signature)) => k256
                 .verifying_key
                 .verify_digest(message.state(), &signature)
                 .map_err(|_| Invalid::Public),
             _ => unimplemented!(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Delegate<M> {
+    Nop,
+    K256(Option<(Host, OrderedMulticast<M>)>),
+}
+
+impl Variant {
+    pub fn delegate<M>(&self) -> Delegate<M> {
+        match self {
+            Self::Unreachable | Self::HalfSipHash(_) => Delegate::Nop,
+            Self::K256(_) => Delegate::K256(Default::default()),
+        }
+    }
+}
+
+impl<M> Delegate<M> {
+    pub fn on_receive<N>(
+        &mut self,
+        remote: Host,
+        message: OrderedMulticast<M>,
+        receivers: &mut impl Receivers<Message = N>,
+        verifier: &Verifier,
+        into: impl Fn(OrderedMulticast<M>) -> N,
+    ) where
+        N: Verify,
+    {
+        match self {
+            Self::Nop => {
+                let message = into(message);
+                message.verify(verifier).unwrap();
+                receivers.handle(Host::Multicast, remote, message)
+            }
+            Self::K256(saved) => {
+                let (remote, message) = if !message.verified() {
+                    (remote, message)
+                } else if let Some((saved_remote, saved_message)) = saved.replace((remote, message))
+                {
+                    let OrderedMulticast {
+                        seq_num,
+                        signature: Signature::K256(signature),
+                        linked,
+                        inner,
+                    } = saved_message
+                    else {
+                        unreachable!()
+                    };
+                    let saved_message = OrderedMulticast {
+                        seq_num,
+                        signature: Signature::K256Unverified(signature),
+                        linked,
+                        inner,
+                    };
+                    (saved_remote, saved_message)
+                } else {
+                    return;
+                };
+                let message = into(message);
+                message.verify(verifier).unwrap();
+                receivers.handle(Host::Multicast, remote, message)
+            }
+        }
+    }
+
+    pub fn on_pace<N>(
+        &mut self,
+        receivers: &mut impl Receivers<Message = N>,
+        verifier: &Verifier,
+        into: impl Fn(OrderedMulticast<M>) -> N,
+    ) where
+        N: Verify,
+    {
+        if let Self::K256(saved) = self {
+            if let Some((remote, message)) = saved.take() {
+                let message = into(message);
+                message.verify(verifier).unwrap();
+                receivers.handle(Host::Multicast, remote, message)
+            }
         }
     }
 }

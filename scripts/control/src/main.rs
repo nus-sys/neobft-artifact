@@ -25,20 +25,20 @@ async fn main() {
         "nsl-node4.d2",
     ];
 
-    let mode = "pbft";
-    let app = App::Null;
-    // let app = App::Ycsb(control_messages::YcsbConfig {
-    //     num_key: 10 * 1000,
-    //     num_value: 100 * 1000,
-    //     key_len: 64,
-    //     value_len: 128,
-    //     read_portion: 50,
-    //     update_portion: 40,
-    //     rmw_portion: 10,
-    // });
+    let mode = "neo-pk";
+    // let app = App::Null;
+    let app = App::Ycsb(control_messages::YcsbConfig {
+        num_key: 10 * 1000,
+        num_value: 100 * 1000,
+        key_len: 64,
+        value_len: 128,
+        read_portion: 50,
+        update_portion: 40,
+        rmw_portion: 10,
+    });
     let benchmark = BenchmarkClient {
         num_group: 5,
-        num_client: 20,
+        num_client: 40,
         duration: Duration::from_secs(10),
     };
     let client_addrs = Vec::from_iter(

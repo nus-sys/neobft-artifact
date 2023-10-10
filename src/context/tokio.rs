@@ -72,7 +72,7 @@ impl Context {
             socket
                 .send_to(buf.as_ref(), addr)
                 .await
-                .unwrap_or_else(|_| panic!("target: {addr:?}"))
+                .unwrap_or_else(|err| panic!("{err} target: {addr:?}"))
         });
     }
 
@@ -208,6 +208,7 @@ impl Dispatch {
                 .deserialize::<M>(buf)
                 .unwrap()
         };
+        let mut delegate = self.variant.delegate();
         let mut pace_count = 1;
         loop {
             assert!(self.event.1.len() < 4096, "receivers overwhelmed");
@@ -235,15 +236,20 @@ impl Dispatch {
                     if self.drop_rate != 0. && rand::thread_rng().gen_bool(self.drop_rate) {
                         continue;
                     }
-                    let message = into(self.variant.deserialize(message));
-                    message.verify(&self.verifier).unwrap();
-                    receivers.handle(Host::Multicast, remote, message)
+                    delegate.on_receive(
+                        remote,
+                        self.variant.deserialize(message),
+                        receivers,
+                        &self.verifier,
+                        &into,
+                    )
                 }
                 Event::Timer(receiver, id) => {
                     receivers.on_timer(receiver, super::TimerId::Tokio(id))
                 }
             }
             if pace_count == 0 {
+                delegate.on_pace(receivers, &self.verifier, &into);
                 receivers.on_pace();
                 pace_count = if self.event.0.is_empty() {
                     1

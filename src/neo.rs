@@ -267,6 +267,7 @@ impl OrderedMulticastReceivers for Replica {
 
 impl Replica {
     pub const CONFIRM_THRESHOLD: u32 = 100;
+    pub const QUERY_THRESHOLD: usize = 100;
 
     fn handle_request(&mut self, _remote: Host, message: OrderedMulticast<Request>) {
         // Jialin's trick to avoid resetting switch for every run
@@ -281,7 +282,7 @@ impl Replica {
             self.reordering_requests.insert(op_num, message);
             // reordering should be resolved within millisecond
             assert!(self.reordering_requests.len() < 300);
-            if self.reordering_requests.len() == 1 {
+            if self.reordering_requests.len() == Self::QUERY_THRESHOLD {
                 self.do_query()
             }
             return;
@@ -355,7 +356,7 @@ impl Replica {
         if message.op_num == self.ordered_num + 1 {
             // println!("> query done {}", message.op_num);
             self.handle_request(remote, message.request);
-            if !self.reordering_requests.is_empty() {
+            if self.reordering_requests.len() >= Self::QUERY_THRESHOLD {
                 self.do_query()
             }
         }
