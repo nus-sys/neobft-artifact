@@ -63,12 +63,12 @@ pub struct Client {
 pub struct ClientShared {
     context: Context<Message>,
     request_num: u32,
-    invoke: Option<Invoke>,
+    invoke: Option<ClientInvoke>,
     resend_timer: Timer,
 }
 
 #[derive(Debug)]
-struct Invoke {
+struct ClientInvoke {
     op: Vec<u8>,
     responses: HashMap<ReplicaIndex, Signed<SpecResponse>>,
     commit_digest: Option<BlockDigest>,
@@ -99,7 +99,7 @@ impl crate::Client for Client {
         let shared = &mut *self.shared.lock().unwrap();
         assert!(shared.invoke.is_none());
         shared.request_num += 1;
-        shared.invoke = Some(Invoke {
+        shared.invoke = Some(ClientInvoke {
             op: op.clone(),
             responses: Default::default(),
             commit_digest: None,
