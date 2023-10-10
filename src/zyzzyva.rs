@@ -120,6 +120,7 @@ impl crate::Client for Client {
         let shared = &mut *self.shared.lock().unwrap();
         match message {
             Message::SpecResponse(message) => {
+                // println!("{message:?}");
                 if message.request_num != shared.request_num {
                     return;
                 }
@@ -210,6 +211,7 @@ impl Receivers for Replica {
 
     fn handle(&mut self, receiver: Host, remote: Host, message: Self::Message) {
         assert_eq!(receiver, Host::Replica(self.index));
+        // println!("{message:?}");
         match message {
             Message::Request(message) => self.handle_request(remote, message),
             Message::OrderRequest(message) => self.handle_order_request(remote, message),

@@ -7,6 +7,45 @@ use tokio_util::sync::CancellationToken;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    // let app = App::Ycsb(control_messages::YcsbConfig {
+    //     num_key: 10 * 1000,
+    //     num_value: 100 * 1000,
+    //     key_len: 64,
+    //     value_len: 128,
+    //     read_portion: 50,
+    //     update_portion: 40,
+    //     rmw_portion: 10,
+    // });
+    run_clients("neo-hm", App::Null).await
+    // run(
+    //     BenchmarkClient {
+    //         num_group: 1,
+    //         num_client: 1,
+    //         duration: Duration::from_secs(10),
+    //     },
+    //     "unreplicated",
+    //     App::Null,
+    //     0.,
+    // )
+    // .await
+}
+
+async fn run_clients(mode: &str, app: App) {
+    let mut benchmark = BenchmarkClient {
+        num_group: 1,
+        num_client: 1,
+        duration: Duration::from_secs(10),
+    };
+    run(benchmark, mode, app, 0.).await;
+    benchmark.num_group = 5;
+    run(benchmark, mode, app, 0.).await;
+    for num_client in (2..=20).step_by(2) {
+        benchmark.num_client = num_client;
+        run(benchmark, mode, app, 0.).await
+    }
+}
+
+async fn run(benchmark: BenchmarkClient, mode: &str, app: App, drop_rate: f64) {
     let client_addrs = (0..).map(|index| SocketAddr::from(([10, 0, 0, 10], 20000 + index)));
     let replica_addrs = vec![
         SocketAddr::from(([10, 0, 0, 1], 10000)),
@@ -25,22 +64,6 @@ async fn main() {
         "nsl-node4.d2",
     ];
 
-    let mode = "minbft";
-    let app = App::Null;
-    // let app = App::Ycsb(control_messages::YcsbConfig {
-    //     num_key: 10 * 1000,
-    //     num_value: 100 * 1000,
-    //     key_len: 64,
-    //     value_len: 128,
-    //     read_portion: 50,
-    //     update_portion: 40,
-    //     rmw_portion: 10,
-    // });
-    let benchmark = BenchmarkClient {
-        num_group: 5,
-        num_client: 40,
-        duration: Duration::from_secs(10),
-    };
     let client_addrs = Vec::from_iter(
         client_addrs.take(benchmark.num_group * benchmark.num_client * num_client_host),
     );
@@ -53,7 +76,7 @@ async fn main() {
         replica_addrs: replica_addrs.clone(),
         multicast_addr,
         num_faulty,
-        drop_rate: 0.,
+        drop_rate,
         // drop_rate: 1e-3,
         seed: 3603269_3604874,
         role,
@@ -71,6 +94,7 @@ async fn main() {
 
     let client = Arc::new(Client::new());
     let mut sessions = Vec::new();
+    println!("* start replicas");
     for (index, host) in replica_hosts.into_iter().enumerate() {
         if mode == "unreplicated" && index > 0 {
             break;
@@ -91,6 +115,7 @@ async fn main() {
     }
 
     sleep(Duration::from_secs(1)).await;
+    println!("* start clients");
     sessions.push(spawn(host_session(
         client_host,
         task(Role::BenchmarkClient(benchmark)),
@@ -110,7 +135,18 @@ async fn main() {
             .unwrap();
         assert!(response.status().is_success());
         if let Some(stats) = response.json::<Option<BenchmarkStats>>().await.unwrap() {
-            println!("* {stats:?}");
+            // println!("* {stats:?}");
+            assert_ne!(stats.throughput, 0.);
+            println!(
+                "{mode},{},{drop_rate},{},{},{}",
+                match app {
+                    App::Null => "null",
+                    App::Ycsb(_) => "ycsb",
+                },
+                benchmark.num_group * benchmark.num_client,
+                stats.throughput,
+                stats.average_latency.unwrap().as_nanos() as f64 / 1000.,
+            );
             break;
         }
     }
@@ -160,5 +196,7 @@ async fn host_session(
             .await
             .unwrap();
         assert!(response.status().is_success());
+    } else {
+        panic!()
     }
 }

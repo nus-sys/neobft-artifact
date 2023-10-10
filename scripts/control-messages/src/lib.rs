@@ -15,13 +15,13 @@ pub struct Task {
     pub role: Role,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum App {
     Null,
     Ycsb(YcsbConfig),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct YcsbConfig {
     pub num_key: usize,
     pub num_value: usize,
@@ -38,20 +38,20 @@ pub enum Role {
     Replica(Replica),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct BenchmarkClient {
     pub num_group: usize,
     pub num_client: usize, // per group
     pub duration: Duration,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Replica {
     //
     pub index: u8,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct BenchmarkStats {
     pub throughput: f32,
     pub average_latency: Option<Duration>,
