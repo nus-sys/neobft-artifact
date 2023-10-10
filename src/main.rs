@@ -16,7 +16,7 @@ use permissioned_blockchain::{
     client::run_benchmark,
     common::set_affinity,
     context::{ordered_multicast::Variant, tokio::Dispatch, Config, Host},
-    neo, pbft, unreplicated, App,
+    neo, pbft, unreplicated, zyzzyva, App,
 };
 use rand::{rngs::StdRng, SeedableRng};
 use tokio::task::JoinHandle;
@@ -82,6 +82,16 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                     "pbft" => run_benchmark(
                         dispatch_config,
                         pbft::Client::new,
+                        config.num_group,
+                        config.num_client,
+                        config.duration,
+                        workload,
+                    ),
+                    "zyzzyva" | "zyzzyva-f" => run_benchmark(
+                        dispatch_config,
+                        |context, index| {
+                            zyzzyva::Client::new(context, index, task.mode == "zyzzyva-f")
+                        },
                         config.num_group,
                         config.num_client,
                         config.duration,
@@ -160,6 +170,14 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                         }
                         "pbft" => {
                             let mut replica = pbft::Replica::new(
+                                dispatch.register(Host::Replica(replica.index)),
+                                replica.index,
+                                app,
+                            );
+                            dispatch.run(&mut replica)
+                        }
+                        "zyzzyva" | "zyzzyva-f" => {
+                            let mut replica = zyzzyva::Replica::new(
                                 dispatch.register(Host::Replica(replica.index)),
                                 replica.index,
                                 app,

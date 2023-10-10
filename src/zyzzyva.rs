@@ -223,6 +223,15 @@ impl Receivers for Replica {
         todo!()
     }
 
+    fn handle_loopback(&mut self, receiver: Host, message: Self::Message) {
+        assert_eq!(receiver, Host::Replica(self.index));
+        let Message::OrderRequest(message) = message else {
+            unimplemented!()
+        };
+        // is this ok?
+        self.handle_order_request(Host::Replica(self.index), message)
+    }
+
     fn on_pace(&mut self) {
         if self.index == self.primary_index() && !self.requests.is_empty() {
             self.do_propose()
@@ -290,7 +299,7 @@ impl Replica {
             view_num: self.view_num,
             block: self.chain.propose(&mut self.requests),
         };
-        self.context.send(To::AllReplica, order_request)
+        self.context.send(To::AllReplicaWithLoopback, order_request);
     }
 
     fn do_execute(&mut self, block_digest: BlockDigest) {

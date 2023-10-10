@@ -215,7 +215,7 @@ impl Verifier {
             (Self::Standard(verifier), Signature::Hmac(code)) => {
                 // well...
                 let mut hasher = Hasher::Hmac(verifier.hmac.clone());
-                message.hash(&mut hasher);
+                M::hash(message, &mut hasher);
                 let Hasher::Hmac(hmac) = hasher else {
                     unreachable!()
                 };

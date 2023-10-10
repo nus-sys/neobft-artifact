@@ -25,7 +25,7 @@ async fn main() {
         "nsl-node4.d2",
     ];
 
-    let mode = "neo-hm";
+    let mode = "zyzzyva-f";
     let app = App::Null;
     // let app = App::Ycsb(control_messages::YcsbConfig {
     //     num_key: 10 * 1000,
@@ -38,7 +38,7 @@ async fn main() {
     // });
     let benchmark = BenchmarkClient {
         num_group: 5,
-        num_client: 80,
+        num_client: 10,
         duration: Duration::from_secs(10),
     };
     let client_addrs = Vec::from_iter(
