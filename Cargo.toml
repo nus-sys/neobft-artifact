@@ -10,6 +10,7 @@ members = [
     "scripts/control-messages",
     "scripts/control",
     "scripts/relay",
+    "scripts/neo-sequencer",
 ]
 
 [profile.release]

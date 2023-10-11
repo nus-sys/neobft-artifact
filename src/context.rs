@@ -24,6 +24,7 @@ pub enum Host {
     Client(ClientIndex),
     Replica(ReplicaIndex),
     Multicast,
+    UnkownMulticastSender,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -155,7 +156,7 @@ impl Config {
                     signing_key = Some(Self::k256(index));
                     num_replica += 1;
                 }
-                Host::Multicast => unimplemented!(),
+                Host::Multicast | Host::UnkownMulticastSender => unimplemented!(),
             };
             hosts.insert(host, ConfigHost { addr, signing_key });
         }

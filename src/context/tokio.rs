@@ -308,7 +308,11 @@ impl Dispatch {
                 let (len, remote) = socket.recv_from(&mut buf).await.unwrap();
                 event
                     .try_send(Event::OrderedMulticastMessage(
-                        config.remotes[&remote],
+                        config
+                            .remotes
+                            .get(&remote)
+                            .copied()
+                            .unwrap_or(Host::UnkownMulticastSender),
                         buf[..len].to_vec(),
                     ))
                     .unwrap()
