@@ -50,6 +50,10 @@ pub trait Client {
 
     fn invoke(&self, op: Vec<u8>, consume: impl Into<BoxedConsume>);
 
+    fn abort(&self) -> Option<BoxedConsume> {
+        unimplemented!()
+    }
+
     fn handle(&self, message: Self::Message);
 
     // on timer
@@ -60,6 +64,10 @@ impl<T: Client> Client for Arc<T> {
 
     fn invoke(&self, op: Vec<u8>, consume: impl Into<BoxedConsume>) {
         T::invoke(self, op, consume)
+    }
+
+    fn abort(&self) -> Option<BoxedConsume> {
+        T::abort(self)
     }
 
     fn handle(&self, message: Self::Message) {

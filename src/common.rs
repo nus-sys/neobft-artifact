@@ -61,16 +61,18 @@ impl DigestHash for Request {
 
 pub type BlockDigest = [u8; 32];
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Block {
     pub requests: Vec<Request>,
     pub parent_digest: BlockDigest,
+    pub height: u32,
 }
 
 impl DigestHash for Block {
     fn hash(&self, hasher: &mut impl std::hash::Hasher) {
         self.requests.hash(hasher);
-        hasher.write(&self.parent_digest)
+        hasher.write(&self.parent_digest);
+        hasher.write_u32(self.height)
     }
 }
 
@@ -82,20 +84,24 @@ impl Block {
 
 #[derive(Debug, Clone)]
 pub struct Chain {
-    digest_parent: BlockDigest,
+    pub digest_parent: BlockDigest,
+    height: u32,
     digest_execute: BlockDigest,
     pending_execute: HashMap<BlockDigest, BlockDigest>,
 }
 
 impl Chain {
-    pub const GENESIS_DIGEST: BlockDigest = [0; 32];
-
     pub fn new() -> Self {
         Self {
-            digest_parent: Self::GENESIS_DIGEST,
-            digest_execute: Self::GENESIS_DIGEST,
+            digest_parent: Self::genesis().digest(),
+            height: 0,
+            digest_execute: Self::genesis().digest(),
             pending_execute: Default::default(),
         }
+    }
+
+    pub fn genesis() -> Block {
+        Block::default()
     }
 }
 
@@ -110,11 +116,13 @@ impl Chain {
 
     pub fn propose(&mut self, requests: &mut Vec<Request>) -> Block {
         assert!(!requests.is_empty());
+        self.height += 1;
         let block = Block {
             requests: requests
                 .drain(..requests.len().min(Self::MAX_BATCH_SIZE))
                 .collect(),
             parent_digest: self.digest_parent,
+            height: self.height,
         };
         self.digest_parent = block.digest();
         block

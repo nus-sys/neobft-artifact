@@ -153,7 +153,7 @@ impl Receivers for Replica {
     fn on_pace(&mut self) {
         if self.make_blocks && !self.requests.is_empty() {
             let block = self.chain.propose(&mut self.requests);
-            assert!(block.digest() != Chain::GENESIS_DIGEST);
+            assert!(block.digest() != Chain::genesis().digest());
             let evicted = self.blocks.insert(block.digest(), block.clone());
             assert!(evicted.is_none());
 
