@@ -9,6 +9,7 @@ members = [
     "scripts/reload", 
     "scripts/control-messages",
     "scripts/control",
+    "scripts/relay",
 ]
 
 [profile.release]
