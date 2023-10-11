@@ -48,8 +48,13 @@ impl Context {
     {
         let message = M::sign(message, &self.signer);
         let buf = Bytes::from(bincode::options().serialize(&message).unwrap());
-        match to {
+        match &to {
             To::Host(host) => self.send_internal(self.config.hosts[&host].addr, buf.clone()),
+            To::Hosts(hosts) => {
+                for host in hosts {
+                    self.send_internal(self.config.hosts[host].addr, buf.clone())
+                }
+            }
             To::AllReplica | To::AllReplicaWithLoopback => {
                 for (&host, host_config) in &self.config.hosts {
                     if matches!(host, Host::Replica(_)) && host != self.source {

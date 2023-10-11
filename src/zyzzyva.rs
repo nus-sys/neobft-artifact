@@ -33,9 +33,8 @@ pub struct OrderRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpecResponse {
-    request_num: u32,
-    result: Vec<u8>,
-    block_digest: BlockDigest,
+    block: Block,
+    results: Vec<Vec<u8>>,
     replica_index: ReplicaIndex,
 }
 
@@ -121,34 +120,43 @@ impl crate::Client for Client {
         match message {
             Message::SpecResponse(message) => {
                 // println!("{message:?}");
-                if message.request_num != shared.request_num {
-                    return;
-                }
                 let Some(invoke) = &mut shared.invoke else {
+                    return;
+                };
+                let Some(result) = message
+                    .block
+                    .requests
+                    .iter()
+                    .position(|request| {
+                        request.client_index == self.index
+                            && request.request_num == shared.request_num
+                    })
+                    .map(|i| &message.results[i])
+                else {
                     return;
                 };
                 invoke
                     .responses
                     .insert(message.replica_index, message.clone());
                 let matched_responses = invoke.responses.values().filter(|response| {
-                    (response.block_digest, &response.result)
-                        == (message.block_digest, &message.result)
+                    (response.block.digest(), &response.results)
+                        == (message.block.digest(), &message.results)
                 });
                 let num_match = matched_responses.clone().count();
                 if num_match == shared.context.config().num_replica {
                     shared.resend_timer.unset(&mut shared.context);
                     let invoke = shared.invoke.take().unwrap();
                     let _op = invoke.op;
-                    invoke.consume.apply(message.inner.result)
+                    invoke.consume.apply(result.clone())
                 } else if self.byzantine
                     && num_match
                         == shared.context.config().num_replica - shared.context.config().num_faulty
                 {
-                    invoke.commit_digest = Some(message.block_digest);
-                    invoke.commit_result = Some(message.result.clone());
+                    invoke.commit_digest = Some(message.block.digest());
+                    invoke.commit_result = Some(result.clone());
                     let commit = Commit {
                         client_index: self.index,
-                        block_digest: message.inner.block_digest,
+                        block_digest: message.block.digest(),
                         responses: matched_responses.cloned().collect(),
                     };
                     shared.context.send(To::AllReplica, commit)
@@ -301,7 +309,7 @@ impl Replica {
             view_num: self.view_num,
             block: self.chain.propose(&mut self.requests),
         };
-        self.context.send(To::AllReplicaWithLoopback, order_request);
+        self.context.send(To::AllReplicaWithLoopback, order_request)
     }
 
     fn do_execute(&mut self, block_digest: BlockDigest) {
@@ -309,22 +317,27 @@ impl Replica {
         if !self.chain.commit(block) {
             return;
         }
-        loop {
-            for request in &block.requests {
-                let spec_response = SpecResponse {
-                    request_num: request.request_num,
-                    result: self.app.execute(&request.op),
-                    block_digest,
-                    replica_index: self.index,
-                };
-                self.context
-                    .send(To::client(request.client_index), spec_response)
-            }
-            if let Some(block_digest) = self.chain.next_execute() {
-                block = &self.order_requests[&block_digest].block;
-            } else {
-                break;
-            }
+        while let Some(block_digest) = {
+            let results = Vec::from_iter(
+                block
+                    .requests
+                    .iter()
+                    .map(|request| self.app.execute(&request.op)),
+            );
+            let spec_response = SpecResponse {
+                block: block.clone(),
+                results,
+                replica_index: self.index,
+            };
+            let hosts = block
+                .requests
+                .iter()
+                .map(|request| Host::Client(request.client_index))
+                .collect();
+            self.context.send(To::Hosts(hosts), spec_response);
+            self.chain.next_execute()
+        } {
+            block = &self.order_requests[&block_digest].block
         }
     }
 }
@@ -338,9 +351,10 @@ impl DigestHash for OrderRequest {
 
 impl DigestHash for SpecResponse {
     fn hash(&self, hasher: &mut impl std::hash::Hasher) {
-        hasher.write_u32(self.request_num);
-        hasher.write(&self.result);
-        hasher.write(&self.block_digest);
+        self.block.hash(hasher);
+        for result in &self.results {
+            hasher.write(result)
+        }
         hasher.write_u8(self.replica_index)
     }
 }

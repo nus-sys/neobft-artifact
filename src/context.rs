@@ -26,9 +26,10 @@ pub enum Host {
     Multicast,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum To {
     Host(Host),
+    Hosts(Vec<Host>),
     AllReplica,
     Loopback,
     AllReplicaWithLoopback,

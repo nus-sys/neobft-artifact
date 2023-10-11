@@ -19,11 +19,11 @@ async fn main() {
     run_clients("neo-hm", App::Null).await
     // run(
     //     BenchmarkClient {
-    //         num_group: 1,
-    //         num_client: 1,
+    //         num_group: 5,
+    //         num_client: 20,
     //         duration: Duration::from_secs(10),
     //     },
-    //     "unreplicated",
+    //     "zyzzyva",
     //     App::Null,
     //     0.,
     // )
@@ -71,7 +71,7 @@ async fn run(benchmark: BenchmarkClient, mode: &str, app: App, drop_rate: f64) {
 
     let task = |role| Task {
         mode: String::from(mode),
-        app: app.clone(),
+        app,
         client_addrs: client_addrs.clone(),
         replica_addrs: replica_addrs.clone(),
         multicast_addr,

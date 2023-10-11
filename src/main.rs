@@ -230,7 +230,7 @@ async fn poll_benchmark(State(state): State<Arc<Mutex<AppState>>>) -> Json<Optio
     let state = state.lock().unwrap();
     match &*state {
         AppState::BenchmarkClientRunning | AppState::Panicked => Json(None),
-        AppState::BenchmarkClientFinish { stats } => Json(Some(stats.clone())),
+        &AppState::BenchmarkClientFinish { stats } => Json(Some(stats)),
         _ => unimplemented!(),
     }
 }
