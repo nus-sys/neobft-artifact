@@ -140,6 +140,7 @@ pub struct Replica {
     digest_lock: BlockDigest,
 
     requests: Vec<Request>,
+    replies: HashMap<ClientIndex, (u32, Option<Reply>)>,
     generics: HashMap<BlockDigest, Signed<Generic>>,
     votes: HashMap<BlockDigest, HashMap<ReplicaIndex, Signed<Vote>>>,
     reordering_generics: HashMap<BlockDigest, Vec<Signed<Generic>>>,
@@ -152,11 +153,13 @@ impl Replica {
         let mut votes = HashMap::new();
         votes.insert(Chain::genesis().digest(), Default::default());
         let mut generics = HashMap::new();
+        let mut genesis_block = Chain::genesis();
+        genesis_block.parent_digest = genesis_block.digest();
         generics.insert(
             Chain::genesis().digest(),
             Signed {
                 inner: Generic {
-                    block: Chain::genesis(),
+                    block: genesis_block,
                     certified_digest: Chain::genesis().digest(),
                     certificate: Default::default(),
                     replica_index: u8::MAX,
@@ -172,6 +175,7 @@ impl Replica {
             digest_certified: Chain::genesis().digest(),
             digest_lock: Chain::genesis().digest(),
             requests: Default::default(),
+            replies: Default::default(),
             generics,
             votes,
             reordering_generics: Default::default(),
@@ -185,6 +189,7 @@ impl Receivers for Replica {
     type Message = Message;
 
     fn handle(&mut self, receiver: Host, remote: Host, message: Self::Message) {
+        // println!("{message:02x?}");
         assert_eq!(receiver, Host::Replica(self.index));
         match message {
             Message::Request(message) => self.handle_request(remote, message),
@@ -195,6 +200,7 @@ impl Receivers for Replica {
     }
 
     fn handle_loopback(&mut self, receiver: Host, message: Self::Message) {
+        // println!("{message:02x?}");
         assert_eq!(receiver, Host::Replica(self.index));
         match message {
             Message::Generic(message) => self.insert_generic(message),
@@ -210,7 +216,7 @@ impl Receivers for Replica {
 
     fn on_pace(&mut self) {
         if self.index == self.primary_index()
-            && !self.requests.is_empty()
+            && self.replies.values().any(|(_, reply)| reply.is_none())
             && self.generics[&self.digest_certified].block.height >= self.propose_height
         {
             self.do_propose()
@@ -223,8 +229,19 @@ impl Replica {
         0 // TODO rotate
     }
 
-    fn handle_request(&mut self, _remote: Host, message: Signed<Request>) {
-        // TODO check resend
+    fn handle_request(&mut self, remote: Host, message: Signed<Request>) {
+        match self.replies.get(&message.client_index) {
+            Some((request_num, _)) if request_num > &message.request_num => return,
+            Some((request_num, reply)) if request_num == &message.request_num => {
+                if let Some(reply) = reply {
+                    self.context.send(To::Host(remote), reply.clone())
+                }
+                return;
+            }
+            _ => {}
+        }
+        self.replies
+            .insert(message.client_index, (message.request_num, None));
 
         if self.index != self.primary_index() {
             return;
@@ -252,7 +269,11 @@ impl Replica {
 
     fn do_propose(&mut self) {
         self.chain.digest_parent = self.digest_certified; // careful
-        let block = self.chain.propose(&mut self.requests);
+        let block = if !self.requests.is_empty() {
+            self.chain.propose(&mut self.requests)
+        } else {
+            self.chain.propose_empty()
+        };
         self.propose_height = block.height;
         let generic = Generic {
             replica_index: self.index,
@@ -293,6 +314,7 @@ impl Replica {
     }
 
     fn insert_generic(&mut self, generic: Signed<Generic>) {
+        // println!("> insert {:02x?}", generic.inner);
         self.generics
             .insert(generic.block.digest(), generic.clone());
 
@@ -301,6 +323,7 @@ impl Replica {
                 || self.block_height(&generic.certified_digest)
                     > self.block_height(&self.digest_lock))
         {
+            // println!("> vote   {:02x?}", generic.inner);
             self.view_height = generic.block.height;
             let vote = Vote {
                 block_digest: generic.block.digest(),
@@ -311,6 +334,7 @@ impl Replica {
             } else {
                 To::replica(self.primary_index())
             };
+            // println!("! send vote {to:?}");
             self.context.send(to, vote)
         }
         self.do_update(&generic.block.digest())
@@ -327,6 +351,7 @@ impl Replica {
         }
         if self.generics[&block_digest2].block.parent_digest == block_digest1
             && self.generics[&block_digest1].block.parent_digest == block_digest0
+            && block_digest0 != Chain::genesis().digest()
         {
             // commit block0
             let block = &self.generics[&block_digest0].block;
@@ -338,6 +363,10 @@ impl Replica {
                     result: self.app.execute(&request.op),
                     replica_index: self.index,
                 };
+                self.replies.insert(
+                    request.client_index,
+                    (request.request_num, Some(reply.clone())),
+                );
                 self.context.send(To::client(request.client_index), reply)
             }
             assert!(self.chain.next_execute().is_none())

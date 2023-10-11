@@ -16,18 +16,18 @@ async fn main() {
     //     update_portion: 40,
     //     rmw_portion: 10,
     // });
-    run_clients("neo-hm", App::Null).await
-    // run(
-    //     BenchmarkClient {
-    //         num_group: 5,
-    //         num_client: 20,
-    //         duration: Duration::from_secs(10),
-    //     },
-    //     "zyzzyva",
-    //     App::Null,
-    //     0.,
-    // )
-    // .await
+    // run_clients("hotstuff", App::Null).await
+    run(
+        BenchmarkClient {
+            num_group: 5,
+            num_client: 100,
+            duration: Duration::from_secs(10),
+        },
+        "hotstuff",
+        App::Null,
+        0.,
+    )
+    .await
 }
 
 async fn run_clients(mode: &str, app: App) {

@@ -128,6 +128,17 @@ impl Chain {
         block
     }
 
+    pub fn propose_empty(&mut self) -> Block {
+        self.height += 1;
+        let block = Block {
+            requests: Default::default(),
+            parent_digest: self.digest_parent,
+            height: self.height,
+        };
+        self.digest_parent = block.digest();
+        block
+    }
+
     pub fn commit(&mut self, block: &Block) -> bool {
         if block.parent_digest == self.digest_execute {
             self.digest_execute = block.digest();
