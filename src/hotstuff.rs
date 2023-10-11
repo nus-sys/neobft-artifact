@@ -274,7 +274,6 @@ impl Replica {
         } else {
             self.chain.propose_empty()
         };
-        self.propose_height = block.height;
         let generic = Generic {
             replica_index: self.index,
             block,
@@ -284,6 +283,7 @@ impl Replica {
                 .cloned()
                 .collect(),
         };
+        self.propose_height = generic.block.height;
         self.context.send(To::AllReplicaWithLoopback, generic)
     }
 

@@ -414,6 +414,9 @@ impl Verify for Message {
             Self::OrderRequest(message) => verifier.verify(message, 0), // TODO
             Self::SpecResponse(message) => verifier.verify(message, message.replica_index),
             Self::Commit(message) => {
+                if message.responses[0].block.requests[0].client_index != message.client_index {
+                    return Ok(());
+                }
                 verifier.verify(message, None)?;
                 // TODO check responses length
                 for response in &message.responses {

@@ -20,17 +20,17 @@ async fn main() {
     run(
         BenchmarkClient {
             num_group: 5,
-            num_client: 100,
+            num_client: 10,
             duration: Duration::from_secs(10),
         },
-        "hotstuff",
+        "zyzzyva",
         App::Null,
         0.,
     )
     .await
 }
 
-async fn run_clients(mode: &str, app: App) {
+async fn run_clients(mode: &str, app: App, num_clients_in_5_groups: impl Iterator<Item = usize>) {
     let mut benchmark = BenchmarkClient {
         num_group: 1,
         num_client: 1,
@@ -38,8 +38,7 @@ async fn run_clients(mode: &str, app: App) {
     };
     run(benchmark, mode, app, 0.).await;
     benchmark.num_group = 5;
-    run(benchmark, mode, app, 0.).await;
-    for num_client in (2..=20).step_by(2) {
+    for num_client in num_clients_in_5_groups {
         benchmark.num_client = num_client;
         run(benchmark, mode, app, 0.).await
     }

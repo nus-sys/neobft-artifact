@@ -85,8 +85,8 @@ impl Block {
 #[derive(Debug, Clone)]
 pub struct Chain {
     pub digest_parent: BlockDigest,
+    pub digest_execute: BlockDigest,
     height: u32,
-    digest_execute: BlockDigest,
     pending_execute: HashMap<BlockDigest, BlockDigest>,
 }
 
