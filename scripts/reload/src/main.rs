@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+#[cfg(not(feature = "aws"))]
 const HOSTS: &[&str] = &[
     "nsl-node1.d2",
     "nsl-node2.d2",
@@ -11,8 +12,14 @@ const HOSTS: &[&str] = &[
     "nsl-node4.d2",
     "nsl-node10.d2",
 ];
+#[cfg(not(feature = "aws"))]
 const LOCALHOST: &str = "nsl-node1.d2";
+#[cfg(feature = "aws")]
+const LOCALHOST: &str = "localhost";
+#[cfg(not(feature = "aws"))]
 const WORK_DIR: &str = "/local/cowsay/artifacts";
+#[cfg(feature = "aws")]
+const WORK_DIR: &str = "/home/ubuntu";
 const PROGRAM: &str = "permissioned-blockchain";
 
 fn main() {
@@ -21,16 +28,35 @@ fn main() {
         .status()
         .unwrap();
     assert!(status.success());
-    let rsync_threads = Vec::from_iter(
-        HOSTS
-            .iter()
-            .filter(|&&host| host != LOCALHOST)
-            .map(|host| spawn(move || host_session(host))),
-    );
+
+    #[cfg(not(feature = "aws"))]
+    let hosts = HOSTS;
+    #[cfg(feature = "aws")]
+    let output = {
+        let output = std::process::Command::new("terraform")
+            .args(["-chdir=scripts/aws", "output", "-json"])
+            .output()
+            .unwrap()
+            .stdout;
+        serde_json::from_slice::<serde_json::Value>(&output).unwrap()
+    };
+    #[cfg(feature = "aws")]
+    let hosts = {
+        let hosts = output["replicas-host"]["value"].as_array().unwrap();
+        let mut hosts = Vec::from_iter(hosts.iter().map(|host| host.as_str().unwrap()));
+        hosts.push(output["client-host"]["value"].as_str().unwrap());
+        hosts
+    };
+
+    let rsync_threads =
+        Vec::from_iter(hosts.iter().filter(|&&host| host != LOCALHOST).map(|host| {
+            let host = host.to_string();
+            spawn(move || host_session(&host))
+        }));
     for thread in rsync_threads {
         thread.join().unwrap()
     }
-    if HOSTS.contains(&LOCALHOST) {
+    if hosts.contains(&LOCALHOST) {
         host_session(LOCALHOST)
     }
 }

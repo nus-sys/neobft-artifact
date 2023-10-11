@@ -108,7 +108,7 @@ resource "aws_instance" "client" {
 }
 
 resource "aws_instance" "replicas" {
-  count = 4
+  count = 1
 
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "c5a.xlarge"
@@ -117,7 +117,7 @@ resource "aws_instance" "replicas" {
   key_name               = "Ephemeral"
 }
 
-resource "aws_instance" "seq" {
+resource "aws_instance" "sequencer" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "c5a.8xlarge"
   subnet_id              = resource.aws_subnet.neo.id
@@ -129,7 +129,7 @@ resource "aws_instance" "relays" {
   count = 1
 
   ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "c5a.xlarge"
+  instance_type          = "c5a.4xlarge"
   subnet_id              = resource.aws_subnet.neo.id
   vpc_security_group_ids = [resource.aws_security_group.neo.id]
   key_name               = "Ephemeral"
@@ -149,14 +149,34 @@ resource "aws_instance" "relays" {
 #   transit_gateway_multicast_domain_id = aws_ec2_transit_gateway_multicast_domain_association.neo.transit_gateway_multicast_domain_id
 # }
 
-output "client" {
+output "client-host" {
   value = aws_instance.client.public_dns
 }
 
-output "replicas" {
+output "client-ip" {
+  value = aws_instance.client.private_ip
+}
+
+output "replicas-host" {
   value = aws_instance.replicas[*].public_dns
 }
 
-output "relays" {
+output "replicas-ip" {
+  value = aws_instance.replicas[*].private_ip
+}
+
+output "sequencer-host" {
+  value = aws_instance.sequencer.public_dns
+}
+
+output "sequencer-ip" {
+  value = aws_instance.sequencer.private_ip
+}
+
+output "relays-host" {
   value = aws_instance.relays[*].public_dns
+}
+
+output "relays-ip" {
+  value = aws_instance.relays[*].private_ip
 }

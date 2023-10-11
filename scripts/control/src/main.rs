@@ -165,6 +165,13 @@ async fn main() {
                 .await
             }
         }
+        #[cfg(not(feature = "aws"))]
+        Some("aws") => panic!("require enable aws feature"),
+        #[cfg(feature = "aws")]
+        Some("aws") => {
+            //
+        }
+
         _ => unimplemented!(),
     }
 }
@@ -209,24 +216,76 @@ async fn run(
         println!("* skip because exist record found");
         return;
     }
-    let client_addrs = (0..).map(|index| SocketAddr::from(([10, 0, 0, 10], 20000 + index)));
-    let replica_addrs = vec![
-        SocketAddr::from(([10, 0, 0, 1], 10000)),
-        SocketAddr::from(([10, 0, 0, 2], 10000)),
-        SocketAddr::from(([10, 0, 0, 3], 10000)),
-        SocketAddr::from(([10, 0, 0, 4], 10000)),
-    ];
-    let multicast_addr = SocketAddr::from(([10, 0, 0, 255], 60004));
 
-    let client_host = "nsl-node10.d2";
+    let client_addrs;
+    let replica_addrs;
+    let multicast_addr;
+    let client_host;
+    let replica_hosts;
+
+    #[cfg(not(feature = "aws"))]
+    {
+        client_addrs = (20000..).map(|port| SocketAddr::from(([10, 0, 0, 10], port)));
+        replica_addrs = vec![
+            SocketAddr::from(([10, 0, 0, 1], 10000)),
+            SocketAddr::from(([10, 0, 0, 2], 10000)),
+            SocketAddr::from(([10, 0, 0, 3], 10000)),
+            SocketAddr::from(([10, 0, 0, 4], 10000)),
+        ];
+        multicast_addr = SocketAddr::from(([10, 0, 0, 255], 60004));
+
+        client_host = "nsl-node10.d2";
+        replica_hosts = [
+            "nsl-node1.d2",
+            "nsl-node2.d2",
+            "nsl-node3.d2",
+            "nsl-node4.d2",
+        ];
+    }
+
+    #[cfg(feature = "aws")]
+    {
+        use std::{net::Ipv4Addr, process::Command};
+        #[derive(serde::Deserialize)]
+        struct Output {
+            client_host: StringValue,
+            client_ip: StringValue,
+            replica_hosts: StringValues,
+            replica_ips: StringValues,
+            sequencer_ip: StringValue,
+        }
+        #[derive(serde::Deserialize)]
+        struct StringValue {
+            value: String,
+        }
+        #[derive(serde::Deserialize)]
+        struct StringValues {
+            value: Vec<String>,
+        }
+        let output = Command::new("terraform")
+            .args(["chdir=scripts/aws", "output", "-json"])
+            .output()
+            .unwrap()
+            .stdout;
+        let output = serde_json::from_slice::<Output>(&output).unwrap();
+        let client_ip = output.client_ip.value.parse::<Ipv4Addr>().unwrap();
+        client_addrs = (20000..).map(move |port| SocketAddr::from((client_ip, port)));
+        replica_addrs = Vec::from_iter(
+            output
+                .replica_ips
+                .value
+                .into_iter()
+                .map(|ip| SocketAddr::from((ip.parse::<Ipv4Addr>().unwrap(), 10000))),
+        );
+        multicast_addr = SocketAddr::from((
+            output.sequencer_ip.value.parse::<Ipv4Addr>().unwrap(),
+            60004,
+        ));
+        client_host = output.client_host.value;
+        replica_hosts = output.replica_hosts.value;
+    }
+
     let num_client_host = 1;
-    let replica_hosts = [
-        "nsl-node1.d2",
-        "nsl-node2.d2",
-        "nsl-node3.d2",
-        "nsl-node4.d2",
-    ];
-
     let client_addrs = Vec::from_iter(
         client_addrs.take(benchmark.num_group * benchmark.num_client * num_client_host),
     );
@@ -280,7 +339,7 @@ async fn run(
     sleep(Duration::from_secs(1)).await;
     println!("* start clients");
     sessions.push(spawn(host_session(
-        client_host,
+        client_host.to_string(),
         task(Role::BenchmarkClient(benchmark)),
         client.clone(),
         cancel.clone(),
