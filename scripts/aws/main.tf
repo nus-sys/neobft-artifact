@@ -101,7 +101,7 @@ resource "aws_security_group" "neo" {
 
 resource "aws_instance" "client" {
   ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "t3.micro"
+  instance_type          = "c5a.8xlarge"
   subnet_id              = resource.aws_subnet.neo.id
   vpc_security_group_ids = [resource.aws_security_group.neo.id]
   key_name               = "Ephemeral"
@@ -111,7 +111,7 @@ resource "aws_instance" "replicas" {
   count = 1
 
   ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "t3.micro"
+  instance_type          = "c5a.xlarge"
   subnet_id              = resource.aws_subnet.neo.id
   vpc_security_group_ids = [resource.aws_security_group.neo.id]
   key_name               = "Ephemeral"

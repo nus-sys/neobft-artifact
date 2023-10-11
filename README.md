@@ -1,10 +1,16 @@
-### NeoBFT: Accelerating Byzantine Fault Tolerance Using Authenticated In-Network Ordering
+## NeoBFT: Accelerating Byzantine Fault Tolerance Using Authenticated In-Network Ordering
 
-The evaluation of NeoBFT consists of three parts: AOM micro-benchmarks (section 6.1, figure 4-6), 4 replica performance benchmarks (section 6.2, 6.4 and 6.5, figure 7, 9 and 10) and AWS deployment (section 6.3, figure 8).
+The evaluation of NeoBFT consists of three parts: 
+* AOM micro-benchmarks (section 6.1, figure 4-6)
+* 4 replica performance benchmarks (section 6.2, 6.4 and 6.5, figure 7, 9 and 10)
+* AWS deployment (section 6.3, figure 8).
+
 The first two parts should be conducted on a hardware-accessible cluster.
-For part 1, you will need a Tofino 1 switch, a Xillinx FPGA and a server machine.
-For part 2, you will need the switch and the FPGA same as part 1, and five server machines, and the first four of which must have identical specification.
-For part 3, you will need an AWS account (and pay for the bill after evaluation).
+For part one, you will need a Tofino1 switch, a Xillinx FPGA and a server machine.
+For part two, you will need the switch and the FPGA same as part 1, and five server machines, and the first four of which must have identical specification.
+
+For part three, you will need an AWS account (and pay for the bill after evaluation).
+
 For all three parts, you will also need a development environment that builds artifacts, controls the evaluation runs and collect results.
 Refer to the preparation document for detail setup.
 
