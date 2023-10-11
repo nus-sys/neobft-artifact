@@ -7,44 +7,208 @@ use tokio_util::sync::CancellationToken;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    // let app = App::Ycsb(control_messages::YcsbConfig {
-    //     num_key: 10 * 1000,
-    //     num_value: 100 * 1000,
-    //     key_len: 64,
-    //     value_len: 128,
-    //     read_portion: 50,
-    //     update_portion: 40,
-    //     rmw_portion: 10,
-    // });
-    // run_clients("hotstuff", App::Null).await
-    run(
-        BenchmarkClient {
-            num_group: 5,
-            num_client: 10,
-            duration: Duration::from_secs(10),
-        },
-        "zyzzyva",
-        App::Null,
-        0.,
-    )
-    .await
+    // run(
+    //     BenchmarkClient {
+    //         num_group: 5,
+    //         num_client: 10,
+    //         duration: Duration::from_secs(10),
+    //     },
+    //     "unreplicated",
+    //     App::Null,
+    //     0.,
+    //     &[],
+    //     std::io::empty(),
+    // )
+    // .await
+
+    let ycsb_app = App::Ycsb(control_messages::YcsbConfig {
+        num_key: 10 * 1000,
+        num_value: 100 * 1000,
+        key_len: 64,
+        value_len: 128,
+        read_portion: 50,
+        update_portion: 40,
+        rmw_portion: 10,
+    });
+    let full_throughput = BenchmarkClient {
+        num_group: 5,
+        num_client: 100,
+        duration: Duration::from_secs(10),
+    };
+    match std::env::args().nth(1).as_deref() {
+        Some("fpga") => {
+            let saved = std::fs::read_to_string("saved-fpga.csv").unwrap_or_default();
+            let saved_lines = Vec::from_iter(saved.lines());
+            let mut out = std::fs::File::options()
+                .create(true)
+                .append(true)
+                .open("saved-fpga.csv")
+                .unwrap();
+            run_clients(
+                "unreplicated",
+                [1].into_iter().chain((2..20).step_by(2)),
+                &saved_lines,
+                &mut out,
+            )
+            .await;
+            run_clients(
+                "neo-pk",
+                [1].into_iter().chain((2..20).step_by(2)),
+                &saved_lines,
+                &mut out,
+            )
+            .await;
+            run_clients(
+                "neo-bn",
+                [1].into_iter().chain((2..20).step_by(2)),
+                &saved_lines,
+                &mut out,
+            )
+            .await;
+            run_clients(
+                "pbft",
+                [1].into_iter().chain((2..20).step_by(2)),
+                &saved_lines,
+                &mut out,
+            )
+            .await;
+            run_clients(
+                "zyzzyva",
+                [1].into_iter().chain((2..20).step_by(2)),
+                &saved_lines,
+                &mut out,
+            )
+            .await;
+            run_clients(
+                "zyzzyva-f",
+                [1].into_iter().chain((2..20).step_by(2)),
+                &saved_lines,
+                &mut out,
+            )
+            .await;
+            run_clients(
+                "hotstuff",
+                [1].into_iter().chain((2..20).step_by(2)),
+                &saved_lines,
+                &mut out,
+            )
+            .await;
+            run_clients(
+                "minbft",
+                [1].into_iter().chain((2..20).step_by(2)),
+                &saved_lines,
+                &mut out,
+            )
+            .await;
+
+            for mode in [
+                "unreplicated",
+                "neo-pk",
+                "neo-bn",
+                "pbft",
+                "zyzzyva",
+                "zyzzyva-f",
+                "hotstuff",
+                "minbft",
+            ] {
+                run(full_throughput, mode, ycsb_app, 0., &saved_lines, &mut out).await
+            }
+
+            for drop_rate in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3] {
+                run(
+                    full_throughput,
+                    "neo-pk",
+                    App::Null,
+                    drop_rate,
+                    &saved_lines,
+                    &mut out,
+                )
+                .await
+            }
+        }
+        Some("hmac") => {
+            let saved = std::fs::read_to_string("saved-hmac.csv").unwrap_or_default();
+            let saved_lines = Vec::from_iter(saved.lines());
+            let mut out = std::fs::File::options()
+                .create(true)
+                .append(true)
+                .open("saved-hmac.csv")
+                .unwrap();
+
+            run_clients(
+                "neo-hm",
+                [1].into_iter().chain((2..20).step_by(2)),
+                &saved_lines,
+                &mut out,
+            )
+            .await;
+
+            run(
+                full_throughput,
+                "neo-hm",
+                ycsb_app,
+                0.,
+                &saved_lines,
+                &mut out,
+            )
+            .await;
+
+            for drop_rate in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3] {
+                run(
+                    full_throughput,
+                    "neo-hm",
+                    App::Null,
+                    drop_rate,
+                    &saved_lines,
+                    &mut out,
+                )
+                .await
+            }
+        }
+        _ => unimplemented!(),
+    }
 }
 
-async fn run_clients(mode: &str, app: App, num_clients_in_5_groups: impl Iterator<Item = usize>) {
+async fn run_clients(
+    mode: &str,
+    num_clients_in_5_groups: impl Iterator<Item = usize>,
+    saved_lines: &[&str],
+    mut out: impl std::io::Write,
+) {
     let mut benchmark = BenchmarkClient {
         num_group: 1,
         num_client: 1,
         duration: Duration::from_secs(10),
     };
-    run(benchmark, mode, app, 0.).await;
+    run(benchmark, mode, App::Null, 0., saved_lines, &mut out).await;
     benchmark.num_group = 5;
     for num_client in num_clients_in_5_groups {
         benchmark.num_client = num_client;
-        run(benchmark, mode, app, 0.).await
+        run(benchmark, mode, App::Null, 0., saved_lines, &mut out).await
     }
 }
 
-async fn run(benchmark: BenchmarkClient, mode: &str, app: App, drop_rate: f64) {
+async fn run(
+    benchmark: BenchmarkClient,
+    mode: &str,
+    app: App,
+    drop_rate: f64,
+    saved_lines: &[&str],
+    mut out: impl std::io::Write,
+) {
+    let id = format!(
+        "{mode},{},{drop_rate},{}",
+        match app {
+            App::Null => "null",
+            App::Ycsb(_) => "ycsb",
+        },
+        benchmark.num_group * benchmark.num_client,
+    );
+    println!("* work on {id}");
+    if saved_lines.iter().any(|line| line.starts_with(&id)) {
+        println!("* skip because exist record found");
+        return;
+    }
     let client_addrs = (0..).map(|index| SocketAddr::from(([10, 0, 0, 10], 20000 + index)));
     let replica_addrs = vec![
         SocketAddr::from(([10, 0, 0, 1], 10000)),
@@ -134,18 +298,15 @@ async fn run(benchmark: BenchmarkClient, mode: &str, app: App, drop_rate: f64) {
             .unwrap();
         assert!(response.status().is_success());
         if let Some(stats) = response.json::<Option<BenchmarkStats>>().await.unwrap() {
-            // println!("* {stats:?}");
+            println!("* {stats:?}");
             assert_ne!(stats.throughput, 0.);
-            println!(
-                "{mode},{},{drop_rate},{},{},{}",
-                match app {
-                    App::Null => "null",
-                    App::Ycsb(_) => "ycsb",
-                },
-                benchmark.num_group * benchmark.num_client,
+            writeln!(
+                out,
+                "{id},{},{}",
                 stats.throughput,
                 stats.average_latency.unwrap().as_nanos() as f64 / 1000.,
-            );
+            )
+            .unwrap();
             break;
         }
     }
