@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
 use bincode::Options;
 use k256::{
-    ecdsa::VerifyingKey,
-    schnorr::signature::DigestVerifier,
+    ecdsa::{SigningKey, VerifyingKey},
+    schnorr::signature::{DigestSigner, DigestVerifier},
     sha2::{Digest, Sha256},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -78,17 +80,22 @@ impl<M> OrderedMulticast<M> {
             self.signature,
             K256(_) | K256Unverified(_) | K256Linked
         ));
-        let mut state = [0; 52];
-        state[0..32].copy_from_slice(&self.linked);
-        for (a, b) in state[16..48]
-            .iter_mut()
-            .zip(Hasher::sha256(&self.inner).finalize())
-        {
-            *a ^= b;
-        }
-        state[48..52].copy_from_slice(&self.seq_num.to_be_bytes());
-        Sha256::new().chain_update(state)
+        state_internal(
+            self.linked,
+            Hasher::sha256(&self.inner).finalize().into(),
+            self.seq_num,
+        )
     }
+}
+
+fn state_internal(linked: [u8; 32], digest: [u8; 32], seq_num: u32) -> Sha256 {
+    let mut state = [0; 52];
+    state[0..32].copy_from_slice(&linked);
+    for (a, b) in state[16..48].iter_mut().zip(digest) {
+        *a ^= b
+    }
+    state[48..52].copy_from_slice(&seq_num.to_be_bytes());
+    Sha256::new().chain_update(state)
 }
 
 #[derive(Debug, Clone)]
@@ -109,16 +116,18 @@ pub struct K256 {
     verifying_key: VerifyingKey,
 }
 
+const SWITCH_SIGNING_KEY: &[u8] = include_bytes!("switch_signing_key");
+
 impl Variant {
     pub fn new_half_sip_hash(index: ReplicaIndex) -> Self {
         Self::HalfSipHash(HalfSipHash { index })
     }
 
-    const SWITCH_VERIFYING_KEY: &[u8] = include_bytes!("switch_verifying_key");
-
     pub fn new_k256() -> Self {
         Self::K256(K256 {
-            verifying_key: VerifyingKey::from_sec1_bytes(Self::SWITCH_VERIFYING_KEY).unwrap(),
+            verifying_key: *SigningKey::from_slice(SWITCH_SIGNING_KEY)
+                .unwrap()
+                .verifying_key(),
         })
     }
 
@@ -279,6 +288,67 @@ impl<M> Delegate<M> {
                 receivers.handle(Host::Multicast, remote, message)
             } else {
                 // println!("! no signed ordered multicast buffer")
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Sequencer {
+    seq_num: u32,
+    crypto: SequencerCrypto,
+}
+
+#[derive(Debug, Clone)]
+enum SequencerCrypto {
+    HalfSipHash, // TODO
+    K256 {
+        state: Sha256,
+        signing_key: Arc<SigningKey>,
+    },
+}
+
+impl Sequencer {
+    pub fn new_half_sip_hash() -> Self {
+        Self {
+            seq_num: 0,
+            crypto: SequencerCrypto::HalfSipHash,
+        }
+    }
+
+    pub fn new_k256() -> Self {
+        Self {
+            seq_num: 0,
+            crypto: SequencerCrypto::K256 {
+                state: Default::default(),
+                signing_key: Arc::new(SigningKey::from_slice(SWITCH_SIGNING_KEY).unwrap()),
+            },
+        }
+    }
+
+    pub fn process(&mut self, buf: &mut [u8]) {
+        self.seq_num += 1;
+        buf[0..4].copy_from_slice(&self.seq_num.to_be_bytes());
+        match &mut self.crypto {
+            // TODO
+            SequencerCrypto::HalfSipHash => buf[4..20].copy_from_slice(&[0xcc; 16]),
+            SequencerCrypto::K256 { state, .. } => {
+                let mut digest = [0; 32];
+                digest.copy_from_slice(&buf[68..100]);
+                let linked = std::mem::take(state).finalize();
+                buf[68..100].copy_from_slice(&linked);
+                *state = state_internal(linked.into(), digest, self.seq_num);
+            }
+        }
+    }
+
+    pub fn postprocess(&self) -> impl FnOnce(&mut [u8]) + Send + Sync + 'static {
+        let crypto = self.crypto.clone();
+        move |buf: &mut [u8]| match crypto {
+            SequencerCrypto::HalfSipHash => {}
+            SequencerCrypto::K256 { state, signing_key } => {
+                let signature: k256::ecdsa::Signature = signing_key.sign_digest(state);
+                buf[4..68].copy_from_slice(&signature.to_bytes())
             }
         }
     }
