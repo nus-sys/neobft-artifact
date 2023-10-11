@@ -46,56 +46,56 @@ async fn main() {
                 .unwrap();
             run_clients(
                 "unreplicated",
-                [1].into_iter().chain((2..20).step_by(2)),
+                [1].into_iter().chain((2..=20).step_by(2)),
                 &saved_lines,
                 &mut out,
             )
             .await;
             run_clients(
                 "neo-pk",
-                [1].into_iter().chain((2..20).step_by(2)),
+                [1].into_iter().chain((2..=40).step_by(2)),
                 &saved_lines,
                 &mut out,
             )
             .await;
             run_clients(
                 "neo-bn",
-                [1].into_iter().chain((2..20).step_by(2)),
+                [1].into_iter().chain((2..=60).step_by(2)),
                 &saved_lines,
                 &mut out,
             )
             .await;
             run_clients(
                 "pbft",
-                [1].into_iter().chain((2..20).step_by(2)),
+                [1].into_iter().chain((2..=60).step_by(2)),
                 &saved_lines,
                 &mut out,
             )
             .await;
             run_clients(
                 "zyzzyva",
-                [1].into_iter().chain((2..20).step_by(2)),
+                [1].into_iter().chain((2..=20).step_by(2)),
                 &saved_lines,
                 &mut out,
             )
             .await;
             run_clients(
                 "zyzzyva-f",
-                [1].into_iter().chain((2..20).step_by(2)),
+                [1].into_iter().chain((2..=20).step_by(2)),
                 &saved_lines,
                 &mut out,
             )
             .await;
             run_clients(
                 "hotstuff",
-                [1].into_iter().chain((2..20).step_by(2)),
+                [1].into_iter().chain((2..=60).step_by(2)),
                 &saved_lines,
                 &mut out,
             )
             .await;
             run_clients(
                 "minbft",
-                [1].into_iter().chain((2..20).step_by(2)),
+                [1].into_iter().chain((2..=60).step_by(2)),
                 &saved_lines,
                 &mut out,
             )
@@ -107,7 +107,7 @@ async fn main() {
                 "neo-bn",
                 "pbft",
                 "zyzzyva",
-                "zyzzyva-f",
+                // "zyzzyva-f",
                 "hotstuff",
                 "minbft",
             ] {
