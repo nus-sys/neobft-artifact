@@ -104,9 +104,11 @@ resource "aws_security_group" "neo" {
   }
 }
 
-resource "aws_instance" "client" {
+resource "aws_instance" "clients" {
+  count = 100
+
   ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "c5a.4xlarge"
+  instance_type          = "c5a.xlarge"
   subnet_id              = resource.aws_subnet.neo.id
   vpc_security_group_ids = [resource.aws_security_group.neo.id]
   key_name               = "Ephemeral"
@@ -154,12 +156,12 @@ resource "aws_instance" "relays" {
 #   transit_gateway_multicast_domain_id = aws_ec2_transit_gateway_multicast_domain_association.neo.transit_gateway_multicast_domain_id
 # }
 
-output "client-host" {
-  value = aws_instance.client.public_dns
+output "client-hosts" {
+  value = aws_instance.clients[*].public_dns
 }
 
-output "client-ip" {
-  value = aws_instance.client.private_ip
+output "client-ips" {
+  value = aws_instance.clients[*].private_ip
 }
 
 output "replica-hosts" {

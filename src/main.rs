@@ -13,7 +13,7 @@ use axum::{
 use control_messages::{BenchmarkStats, Role, Task};
 use permissioned_blockchain::{
     app::{ycsb, Workload},
-    client::run_benchmark,
+    client::{run_benchmark, RunBenchmarkConfig},
     common::set_affinity,
     context::{ordered_multicast::Variant, tokio::Dispatch, Config, Host},
     hotstuff, minbft, neo, pbft, unreplicated, zyzzyva, App,
@@ -60,59 +60,27 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                 }
             };
 
+            let benchmark_config = RunBenchmarkConfig {
+                dispatch_config,
+                offset: config.offset,
+                num_group: config.num_group,
+                num_client: config.num_client,
+                duration: config.duration,
+                workload,
+            };
             let state = state.clone();
             tokio::task::spawn_blocking(move || {
                 let latencies = match &*task.mode {
-                    "unreplicated" => run_benchmark(
-                        dispatch_config,
-                        unreplicated::Client::new,
-                        config.num_group,
-                        config.num_client,
-                        config.duration,
-                        workload,
-                    ),
-                    "neo-hm" | "neo-pk" | "neo-bn" => run_benchmark(
-                        dispatch_config,
-                        neo::Client::new,
-                        config.num_group,
-                        config.num_client,
-                        config.duration,
-                        workload,
-                    ),
-                    "pbft" => run_benchmark(
-                        dispatch_config,
-                        pbft::Client::new,
-                        config.num_group,
-                        config.num_client,
-                        config.duration,
-                        workload,
-                    ),
-                    "zyzzyva" | "zyzzyva-f" => run_benchmark(
-                        dispatch_config,
-                        |context, index| {
-                            zyzzyva::Client::new(context, index, task.mode == "zyzzyva-f")
-                        },
-                        config.num_group,
-                        config.num_client,
-                        config.duration,
-                        workload,
-                    ),
-                    "hotstuff" => run_benchmark(
-                        dispatch_config,
-                        hotstuff::Client::new,
-                        config.num_group,
-                        config.num_client,
-                        config.duration,
-                        workload,
-                    ),
-                    "minbft" => run_benchmark(
-                        dispatch_config,
-                        minbft::Client::new,
-                        config.num_group,
-                        config.num_client,
-                        config.duration,
-                        workload,
-                    ),
+                    "unreplicated" => run_benchmark(benchmark_config, unreplicated::Client::new),
+                    "neo-hm" | "neo-pk" | "neo-bn" => {
+                        run_benchmark(benchmark_config, neo::Client::new)
+                    }
+                    "pbft" => run_benchmark(benchmark_config, pbft::Client::new),
+                    "zyzzyva" | "zyzzyva-f" => run_benchmark(benchmark_config, |context, index| {
+                        zyzzyva::Client::new(context, index, task.mode == "zyzzyva-f")
+                    }),
+                    "hotstuff" => run_benchmark(benchmark_config, hotstuff::Client::new),
+                    "minbft" => run_benchmark(benchmark_config, minbft::Client::new),
                     _ => unimplemented!(),
                 };
                 *state.lock().unwrap() = AppState::BenchmarkClientFinish {

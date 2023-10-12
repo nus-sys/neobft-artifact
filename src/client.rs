@@ -168,13 +168,18 @@ impl<C> Benchmark<C> {
     }
 }
 
+pub struct RunBenchmarkConfig {
+    pub dispatch_config: Config,
+    pub offset: usize,
+    pub num_group: usize,
+    pub num_client: usize,
+    pub duration: Duration,
+    pub workload: Workload,
+}
+
 pub fn run_benchmark<C>(
-    dispatch_config: Config,
+    config: RunBenchmarkConfig,
     new_client: impl Fn(Context<C::Message>, ClientIndex) -> C,
-    num_group: usize,
-    num_client: usize,
-    duration: Duration,
-    workload: Workload,
 ) -> Vec<Duration>
 where
     C: Client + Send + Sync + 'static,
@@ -187,11 +192,11 @@ where
         dispatch_handle: DispatchHandle,
     }
 
-    let barrier = Arc::new(Barrier::new(num_group));
-    let dispatch_config = Arc::new(dispatch_config);
+    let barrier = Arc::new(Barrier::new(config.num_group));
+    let dispatch_config = Arc::new(config.dispatch_config);
     let groups = Vec::from_iter(
-        repeat((barrier, Arc::new(workload)))
-            .take(num_group)
+        repeat((barrier, Arc::new(config.workload)))
+            .take(config.num_group)
             .enumerate()
             .map(|(group_index, (barrier, workload))| {
                 let runtime = tokio::runtime::Builder::new_current_thread()
@@ -207,8 +212,9 @@ where
                 );
 
                 let mut benchmark = Benchmark::new();
-                for group_offset in 0..num_client {
-                    let index = (group_index * num_client + group_offset) as ClientIndex;
+                for group_offset in 0..config.num_client {
+                    let index = (config.offset + group_index * config.num_client + group_offset)
+                        as ClientIndex;
                     let client = new_client(dispatch.register(Host::Client(index)), index);
                     benchmark.insert_client(index, client);
                 }
@@ -234,9 +240,9 @@ where
                         benchmark.close_loop(Duration::from_secs(1), &workload, handle.clone());
                     }
                     barrier.wait();
-                    benchmark.close_loop(Duration::from_secs(2), &workload, handle.clone());
+                    benchmark.close_loop(Duration::from_secs(1), &workload, handle.clone());
                     benchmark.latencies.clear();
-                    benchmark.close_loop(duration, &workload, handle);
+                    benchmark.close_loop(config.duration, &workload, handle);
                     benchmark
                 });
 

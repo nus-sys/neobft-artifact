@@ -42,6 +42,7 @@ pub enum Role {
 pub struct BenchmarkClient {
     pub num_group: usize,
     pub num_client: usize, // per group
+    pub offset: usize,
     pub duration: Duration,
 }
 

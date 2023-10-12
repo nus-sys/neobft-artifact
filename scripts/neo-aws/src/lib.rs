@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Output {
-    pub client_host: String,
-    pub client_ip: String,
+    pub client_hosts: Vec<String>,
+    pub client_ips: Vec<String>,
     pub replica_hosts: Vec<String>,
     pub replica_ips: Vec<String>,
     pub sequencer_host: String,

@@ -34,7 +34,7 @@ fn main() {
     #[cfg(feature = "aws")]
     let hosts = {
         let output = neo_aws::Output::new_terraform();
-        [&[output.client_host][..], &output.replica_hosts].concat()
+        [&*output.client_hosts, &*output.replica_hosts].concat()
     };
 
     let rsync_threads =

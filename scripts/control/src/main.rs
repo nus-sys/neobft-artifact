@@ -8,11 +8,8 @@ use tokio_util::sync::CancellationToken;
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     run(
-        BenchmarkClient {
-            num_group: 5,
-            num_client: 20,
-            duration: Duration::from_secs(10),
-        },
+        1, //
+        1,
         "neo-pk",
         App::Null,
         0.,
@@ -32,11 +29,6 @@ async fn main() {
         update_portion: 40,
         rmw_portion: 10,
     });
-    let full_throughput = BenchmarkClient {
-        num_group: 5,
-        num_client: 100,
-        duration: Duration::from_secs(10),
-    };
     match std::env::args().nth(1).as_deref() {
         Some("fpga") => {
             let saved = std::fs::read_to_string("saved-fpga.csv").unwrap_or_default();
@@ -113,29 +105,11 @@ async fn main() {
                 "hotstuff",
                 "minbft",
             ] {
-                run(
-                    full_throughput,
-                    mode,
-                    ycsb_app,
-                    0.,
-                    1,
-                    &saved_lines,
-                    &mut out,
-                )
-                .await
+                run_full_throughput(mode, ycsb_app, 0., 1, &saved_lines, &mut out).await
             }
 
             for drop_rate in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3] {
-                run(
-                    full_throughput,
-                    "neo-pk",
-                    App::Null,
-                    drop_rate,
-                    1,
-                    &saved_lines,
-                    &mut out,
-                )
-                .await
+                run_full_throughput("neo-pk", App::Null, drop_rate, 1, &saved_lines, &mut out).await
             }
         }
         Some("hmac") => {
@@ -155,28 +129,10 @@ async fn main() {
             )
             .await;
 
-            run(
-                full_throughput,
-                "neo-hm",
-                ycsb_app,
-                0.,
-                1,
-                &saved_lines,
-                &mut out,
-            )
-            .await;
+            run_full_throughput("neo-hm", ycsb_app, 0., 1, &saved_lines, &mut out).await;
 
             for drop_rate in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3] {
-                run(
-                    full_throughput,
-                    "neo-hm",
-                    App::Null,
-                    drop_rate,
-                    1,
-                    &saved_lines,
-                    &mut out,
-                )
-                .await
+                run_full_throughput("neo-hm", App::Null, drop_rate, 1, &saved_lines, &mut out).await
             }
         }
         #[cfg(not(feature = "aws"))]
@@ -190,27 +146,33 @@ async fn main() {
     }
 }
 
+async fn run_full_throughput(
+    mode: &str,
+    app: App,
+    drop_rate: f64,
+    num_faulty: usize,
+    saved_lines: &[&str],
+    out: impl std::io::Write,
+) {
+    run(5, 100, mode, app, drop_rate, num_faulty, saved_lines, out).await
+}
+
 async fn run_clients(
     mode: &str,
     num_clients_in_5_groups: impl Iterator<Item = usize>,
     saved_lines: &[&str],
     mut out: impl std::io::Write,
 ) {
-    let mut benchmark = BenchmarkClient {
-        num_group: 1,
-        num_client: 1,
-        duration: Duration::from_secs(10),
-    };
-    run(benchmark, mode, App::Null, 0., 1, saved_lines, &mut out).await;
-    benchmark.num_group = 5;
+    run(1, 1, mode, App::Null, 0., 1, saved_lines, &mut out).await;
     for num_client in num_clients_in_5_groups {
-        benchmark.num_client = num_client;
-        run(benchmark, mode, App::Null, 0., 1, saved_lines, &mut out).await
+        run(5, num_client, mode, App::Null, 0., 1, saved_lines, &mut out).await
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run(
-    benchmark: BenchmarkClient,
+    num_group: usize,
+    num_client: usize,
     mode: &str,
     app: App,
     drop_rate: f64,
@@ -218,24 +180,10 @@ async fn run(
     saved_lines: &[&str],
     mut out: impl std::io::Write,
 ) {
-    let id = format!(
-        "{mode},{},{drop_rate},{}",
-        match app {
-            App::Null => "null",
-            App::Ycsb(_) => "ycsb",
-        },
-        benchmark.num_group * benchmark.num_client,
-    );
-    println!("* work on {id}");
-    if saved_lines.iter().any(|line| line.starts_with(&id)) {
-        println!("* skip because exist record found");
-        return;
-    }
-
     let client_addrs;
     let replica_addrs;
     let multicast_addr;
-    let client_host;
+    let client_hosts;
     let replica_hosts;
 
     #[cfg(not(feature = "aws"))]
@@ -250,7 +198,7 @@ async fn run(
         ];
         multicast_addr = SocketAddr::from(([10, 0, 0, 255], 60004));
 
-        client_host = "nsl-node10.d2";
+        client_hosts = ["nsl-node10.d2"];
         replica_hosts = [
             "nsl-node1.d2",
             "nsl-node2.d2",
@@ -263,8 +211,12 @@ async fn run(
     {
         use std::net::Ipv4Addr;
         let output = neo_aws::Output::new_terraform();
-        let client_ip = output.client_ip.parse::<Ipv4Addr>().unwrap();
-        client_addrs = (20000..).map(move |port| SocketAddr::from((client_ip, port)));
+        client_addrs = output
+            .client_ips
+            .into_iter()
+            .map(|ip| SocketAddr::from((ip.parse::<Ipv4Addr>().unwrap(), 20000)));
+        assert_eq!(num_group, 1);
+        assert_eq!(num_client, 1);
         replica_addrs = Vec::from_iter(
             output
                 .replica_ips
@@ -279,15 +231,27 @@ async fn run(
         );
         multicast_addr =
             SocketAddr::from((output.sequencer_ip.parse::<Ipv4Addr>().unwrap(), 60004));
-        client_host = output.client_host;
+        client_hosts = output.client_hosts;
         // TODO clarify this and avoid pitfall
         replica_hosts = output.replica_hosts[..2 * num_faulty + 1].to_vec();
     }
 
-    let num_client_host = 1;
-    let client_addrs = Vec::from_iter(
-        client_addrs.take(benchmark.num_group * benchmark.num_client * num_client_host),
+    let client_addrs =
+        Vec::from_iter(client_addrs.take(num_group * num_client * client_hosts.len()));
+
+    let id = format!(
+        "{mode},{},{drop_rate},{},{num_faulty}",
+        match app {
+            App::Null => "null",
+            App::Ycsb(_) => "ycsb",
+        },
+        client_addrs.len(),
     );
+    println!("* work on {id}");
+    if saved_lines.iter().any(|line| line.starts_with(&id)) {
+        println!("* skip because exist record found");
+        return;
+    }
 
     let task = |role| Task {
         mode: String::from(mode),
@@ -336,35 +300,46 @@ async fn run(
 
     sleep(Duration::from_secs(1)).await;
     println!("* start clients");
-    sessions.push(spawn(host_session(
-        client_host.to_string(),
-        task(Role::BenchmarkClient(benchmark)),
-        client.clone(),
-        cancel.clone(),
-    )));
+    let mut benchmark = BenchmarkClient {
+        num_group,
+        num_client,
+        offset: 0,
+        duration: Duration::from_secs(10),
+    };
+    for client_host in &client_hosts {
+        sessions.push(spawn(host_session(
+            client_host.to_string(),
+            task(Role::BenchmarkClient(benchmark)),
+            client.clone(),
+            cancel.clone(),
+        )));
+        benchmark.offset += num_group * num_client;
+    }
 
-    loop {
-        select! {
-            _ = sleep(Duration::from_secs(1)) => {}
-            _ = cancel.cancelled() => break,
-        }
-        let response = client
-            .get(format!("http://{client_host}:9999/benchmark"))
-            .send()
-            .await
-            .unwrap();
-        assert!(response.status().is_success());
-        if let Some(stats) = response.json::<Option<BenchmarkStats>>().await.unwrap() {
-            println!("* {stats:?}");
-            assert_ne!(stats.throughput, 0.);
-            writeln!(
-                out,
-                "{id},{},{}",
-                stats.throughput,
-                stats.average_latency.unwrap().as_nanos() as f64 / 1000.,
-            )
-            .unwrap();
-            break;
+    for (index, client_host) in client_hosts.into_iter().enumerate() {
+        loop {
+            let response = client
+                .get(format!("http://{client_host}:9999/benchmark"))
+                .send()
+                .await
+                .unwrap();
+            assert!(response.status().is_success());
+            if let Some(stats) = response.json::<Option<BenchmarkStats>>().await.unwrap() {
+                println!("* {stats:?}");
+                assert_ne!(stats.throughput, 0.);
+                writeln!(
+                    out,
+                    "{id},{index},{},{}",
+                    stats.throughput,
+                    stats.average_latency.unwrap().as_nanos() as f64 / 1000.,
+                )
+                .unwrap();
+                break;
+            }
+            select! {
+                _ = sleep(Duration::from_secs(1)) => {}
+                _ = cancel.cancelled() => break,
+            }
         }
     }
 
