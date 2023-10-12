@@ -7,19 +7,21 @@ use tokio_util::sync::CancellationToken;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    // run(
-    //     BenchmarkClient {
-    //         num_group: 5,
-    //         num_client: 10,
-    //         duration: Duration::from_secs(10),
-    //     },
-    //     "unreplicated",
-    //     App::Null,
-    //     0.,
-    //     &[],
-    //     std::io::empty(),
-    // )
-    // .await
+    run(
+        BenchmarkClient {
+            num_group: 5,
+            num_client: 10,
+            duration: Duration::from_secs(10),
+        },
+        "unreplicated",
+        App::Null,
+        0.,
+        1,
+        &[],
+        std::io::empty(),
+    )
+    .await;
+    return;
 
     let ycsb_app = App::Ycsb(control_messages::YcsbConfig {
         num_key: 10 * 1000,
@@ -111,7 +113,16 @@ async fn main() {
                 "hotstuff",
                 "minbft",
             ] {
-                run(full_throughput, mode, ycsb_app, 0., &saved_lines, &mut out).await
+                run(
+                    full_throughput,
+                    mode,
+                    ycsb_app,
+                    0.,
+                    4,
+                    &saved_lines,
+                    &mut out,
+                )
+                .await
             }
 
             for drop_rate in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3] {
@@ -120,6 +131,7 @@ async fn main() {
                     "neo-pk",
                     App::Null,
                     drop_rate,
+                    4,
                     &saved_lines,
                     &mut out,
                 )
@@ -148,6 +160,7 @@ async fn main() {
                 "neo-hm",
                 ycsb_app,
                 0.,
+                4,
                 &saved_lines,
                 &mut out,
             )
@@ -159,6 +172,7 @@ async fn main() {
                     "neo-hm",
                     App::Null,
                     drop_rate,
+                    4,
                     &saved_lines,
                     &mut out,
                 )
@@ -187,11 +201,11 @@ async fn run_clients(
         num_client: 1,
         duration: Duration::from_secs(10),
     };
-    run(benchmark, mode, App::Null, 0., saved_lines, &mut out).await;
+    run(benchmark, mode, App::Null, 0., 4, saved_lines, &mut out).await;
     benchmark.num_group = 5;
     for num_client in num_clients_in_5_groups {
         benchmark.num_client = num_client;
-        run(benchmark, mode, App::Null, 0., saved_lines, &mut out).await
+        run(benchmark, mode, App::Null, 0., 4, saved_lines, &mut out).await
     }
 }
 
@@ -200,6 +214,7 @@ async fn run(
     mode: &str,
     app: App,
     drop_rate: f64,
+    num_replica: usize,
     saved_lines: &[&str],
     mut out: impl std::io::Write,
 ) {
@@ -245,51 +260,28 @@ async fn run(
 
     #[cfg(feature = "aws")]
     {
-        use std::{net::Ipv4Addr, process::Command};
-        #[derive(serde::Deserialize)]
-        struct Output {
-            client_host: StringValue,
-            client_ip: StringValue,
-            replica_hosts: StringValues,
-            replica_ips: StringValues,
-            sequencer_ip: StringValue,
-        }
-        #[derive(serde::Deserialize)]
-        struct StringValue {
-            value: String,
-        }
-        #[derive(serde::Deserialize)]
-        struct StringValues {
-            value: Vec<String>,
-        }
-        let output = Command::new("terraform")
-            .args(["chdir=scripts/aws", "output", "-json"])
-            .output()
-            .unwrap()
-            .stdout;
-        let output = serde_json::from_slice::<Output>(&output).unwrap();
-        let client_ip = output.client_ip.value.parse::<Ipv4Addr>().unwrap();
+        use std::net::Ipv4Addr;
+        let output = neo_aws::Output::new_terraform();
+        let client_ip = output.client_ip.parse::<Ipv4Addr>().unwrap();
         client_addrs = (20000..).map(move |port| SocketAddr::from((client_ip, port)));
         replica_addrs = Vec::from_iter(
             output
                 .replica_ips
-                .value
                 .into_iter()
+                .take(num_replica)
                 .map(|ip| SocketAddr::from((ip.parse::<Ipv4Addr>().unwrap(), 10000))),
         );
-        multicast_addr = SocketAddr::from((
-            output.sequencer_ip.value.parse::<Ipv4Addr>().unwrap(),
-            60004,
-        ));
-        client_host = output.client_host.value;
-        replica_hosts = output.replica_hosts.value;
+        multicast_addr =
+            SocketAddr::from((output.sequencer_ip.parse::<Ipv4Addr>().unwrap(), 60004));
+        client_host = output.client_host;
+        replica_hosts = output.replica_hosts[..num_replica].to_vec();
     }
 
     let num_client_host = 1;
     let client_addrs = Vec::from_iter(
         client_addrs.take(benchmark.num_group * benchmark.num_client * num_client_host),
     );
-    let num_faulty = 1;
+    let num_faulty = (num_replica - 1) / 3;
 
     let task = |role| Task {
         mode: String::from(mode),

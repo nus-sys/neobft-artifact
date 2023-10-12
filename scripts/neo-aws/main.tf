@@ -101,7 +101,7 @@ resource "aws_security_group" "neo" {
 
 resource "aws_instance" "client" {
   ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "t3.micro"
+  instance_type          = "c5a.4xlarge"
   subnet_id              = resource.aws_subnet.neo.id
   vpc_security_group_ids = [resource.aws_security_group.neo.id]
   key_name               = "Ephemeral"
@@ -157,11 +157,11 @@ output "client-ip" {
   value = aws_instance.client.private_ip
 }
 
-output "replicas-host" {
+output "replica-hosts" {
   value = aws_instance.replicas[*].public_dns
 }
 
-output "replicas-ip" {
+output "replica-ips" {
   value = aws_instance.replicas[*].private_ip
 }
 
@@ -173,10 +173,10 @@ output "sequencer-ip" {
   value = aws_instance.sequencer.private_ip
 }
 
-output "relays-host" {
+output "relay-hosts" {
   value = aws_instance.relays[*].public_dns
 }
 
-output "relays-ip" {
+output "relay-ips" {
   value = aws_instance.relays[*].private_ip
 }

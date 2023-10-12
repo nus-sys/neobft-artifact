@@ -30,33 +30,22 @@ fn main() {
     assert!(status.success());
 
     #[cfg(not(feature = "aws"))]
-    let hosts = HOSTS;
-    #[cfg(feature = "aws")]
-    let output = {
-        let output = std::process::Command::new("terraform")
-            .args(["-chdir=scripts/aws", "output", "-json"])
-            .output()
-            .unwrap()
-            .stdout;
-        serde_json::from_slice::<serde_json::Value>(&output).unwrap()
-    };
+    let hosts = Vec::from_iter(HOSTS.iter().map(ToString::to_string));
     #[cfg(feature = "aws")]
     let hosts = {
-        let hosts = output["replicas-host"]["value"].as_array().unwrap();
-        let mut hosts = Vec::from_iter(hosts.iter().map(|host| host.as_str().unwrap()));
-        hosts.push(output["client-host"]["value"].as_str().unwrap());
-        hosts
+        let output = neo_aws::Output::new_terraform();
+        [&[output.client_host][..], &output.replica_hosts].concat()
     };
 
     let rsync_threads =
-        Vec::from_iter(hosts.iter().filter(|&&host| host != LOCALHOST).map(|host| {
+        Vec::from_iter(hosts.iter().filter(|&host| host != LOCALHOST).map(|host| {
             let host = host.to_string();
             spawn(move || host_session(&host))
         }));
     for thread in rsync_threads {
         thread.join().unwrap()
     }
-    if hosts.contains(&LOCALHOST) {
+    if hosts.contains(&LOCALHOST.to_string()) {
         host_session(LOCALHOST)
     }
 }
