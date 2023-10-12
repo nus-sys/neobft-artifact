@@ -298,7 +298,11 @@ impl Dispatch {
     pub fn enable_ordered_multicast(self) -> OrderedMulticastDispatch {
         let socket = self
             .runtime
-            .block_on(UdpSocket::bind(self.config.multicast_addr.unwrap()))
+            // .block_on(UdpSocket::bind(self.config.multicast_addr.unwrap()))
+            .block_on(UdpSocket::bind((
+                "0.0.0.0",
+                self.config.multicast_addr.unwrap().port(),
+            )))
             .unwrap();
         let event = self.event.0.clone();
         let config = self.config.clone();

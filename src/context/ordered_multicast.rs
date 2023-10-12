@@ -348,7 +348,9 @@ impl Sequencer {
             SequencerCrypto::HalfSipHash => {}
             SequencerCrypto::K256 { state, signing_key } => {
                 let signature: k256::ecdsa::Signature = signing_key.sign_digest(state);
-                buf[4..68].copy_from_slice(&signature.to_bytes())
+                let mut signature = signature.to_bytes();
+                signature.reverse();
+                buf[4..68].copy_from_slice(&signature)
             }
         }
     }

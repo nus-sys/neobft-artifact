@@ -2,9 +2,8 @@ use std::{
     env::args,
     iter::repeat,
     net::{Ipv4Addr, UdpSocket},
-    sync::{atomic::AtomicU32, Arc},
+    sync::Arc,
     thread::{available_parallelism, spawn},
-    time::Duration,
 };
 
 use nix::{
@@ -21,9 +20,9 @@ pub fn set_affinity(index: usize) {
 fn main() {
     let ips = Vec::from_iter(args().skip(1).map(|ip| ip.parse::<Ipv4Addr>().unwrap()));
     let socket = Arc::new(UdpSocket::bind("0.0.0.0:60004").unwrap());
-    let messages = crossbeam_channel::bounded::<Vec<_>>(2048);
+    let messages = flume::bounded::<Vec<_>>(1024);
     for ((index, messages), (socket, ips)) in repeat(messages.1)
-        .take((usize::from(available_parallelism().unwrap()) - 1).min(ips.len()))
+        .take(usize::from(available_parallelism().unwrap()) - 1)
         .enumerate()
         .zip(repeat((socket.clone(), ips)))
     {
@@ -38,23 +37,23 @@ fn main() {
         });
     }
 
-    let counter = Arc::new(AtomicU32::new(0));
-    spawn({
-        let counter = counter.clone();
-        move || loop {
-            std::thread::sleep(Duration::from_secs(1));
-            let count = counter.swap(0, std::sync::atomic::Ordering::SeqCst);
-            if count != 0 {
-                println!("{count}")
-            }
-        }
-    });
+    // let counter = Arc::new(AtomicU32::new(0));
+    // spawn({
+    //     let counter = counter.clone();
+    //     move || loop {
+    //         std::thread::sleep(Duration::from_secs(1));
+    //         let count = counter.swap(0, std::sync::atomic::Ordering::SeqCst);
+    //         if count != 0 {
+    //             println!("{count}")
+    //         }
+    //     }
+    // });
 
     set_affinity(0);
     let mut buf = vec![0; 65536];
     loop {
         let (len, _) = socket.recv_from(&mut buf).unwrap();
         messages.0.send(buf[..len].to_vec()).unwrap();
-        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 }

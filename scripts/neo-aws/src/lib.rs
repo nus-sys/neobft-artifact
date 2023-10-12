@@ -9,8 +9,8 @@ pub struct Output {
     pub replica_ips: Vec<String>,
     pub sequencer_host: String,
     pub sequencer_ip: String,
-    pub relay_hosts: Vec<String>,
-    pub relay_ips: Vec<String>,
+    // pub relay_hosts: Vec<String>,
+    // pub relay_ips: Vec<String>,
 }
 
 impl Output {

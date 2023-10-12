@@ -10,13 +10,13 @@ async fn main() {
     run(
         BenchmarkClient {
             num_group: 5,
-            num_client: 10,
+            num_client: 20,
             duration: Duration::from_secs(10),
         },
-        "unreplicated",
+        "neo-pk",
         App::Null,
         0.,
-        1,
+        4,
         &[],
         std::io::empty(),
     )
@@ -232,6 +232,8 @@ async fn run(
         return;
     }
 
+    let num_faulty = (num_replica - 1) / 3;
+
     let client_addrs;
     let replica_addrs;
     let multicast_addr;
@@ -260,7 +262,7 @@ async fn run(
 
     #[cfg(feature = "aws")]
     {
-        use std::net::Ipv4Addr;
+        use std::{iter::repeat, net::Ipv4Addr};
         let output = neo_aws::Output::new_terraform();
         let client_ip = output.client_ip.parse::<Ipv4Addr>().unwrap();
         client_addrs = (20000..).map(move |port| SocketAddr::from((client_ip, port)));
@@ -268,20 +270,21 @@ async fn run(
             output
                 .replica_ips
                 .into_iter()
-                .take(num_replica)
-                .map(|ip| SocketAddr::from((ip.parse::<Ipv4Addr>().unwrap(), 10000))),
+                .take(2 * num_faulty + 1)
+                .map(|ip| SocketAddr::from((ip.parse::<Ipv4Addr>().unwrap(), 10000)))
+                .chain(repeat(SocketAddr::from(([127, 0, 0, 1], 19999))).take(num_faulty)),
         );
         multicast_addr =
             SocketAddr::from((output.sequencer_ip.parse::<Ipv4Addr>().unwrap(), 60004));
         client_host = output.client_host;
-        replica_hosts = output.replica_hosts[..num_replica].to_vec();
+        // TODO clarify this and avoid pitfall
+        replica_hosts = output.replica_hosts[..2 * num_faulty + 1].to_vec();
     }
 
     let num_client_host = 1;
     let client_addrs = Vec::from_iter(
         client_addrs.take(benchmark.num_group * benchmark.num_client * num_client_host),
     );
-    let num_faulty = (num_replica - 1) / 3;
 
     let task = |role| Task {
         mode: String::from(mode),
