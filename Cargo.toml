@@ -10,8 +10,8 @@ members = [
     "scripts/control-messages",
     "scripts/control",
     "scripts/relay",
-    "scripts/neo-sequencer",
     "scripts/neo-aws-prepare",
+    "scripts/neo-aws",
 ]
 
 [profile.release]

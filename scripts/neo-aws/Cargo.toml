@@ -1,10 +1,10 @@
 [package]
-name = "neo-sequencer"
+name = "neo-aws"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-flume = "0.11.0"
-permissioned-blockchain = { version = "0.1.0", path = "../.." }
+serde = { version = "1.0.188", features = ["derive"] }
+toml = "0.8.2"
