@@ -77,6 +77,7 @@ impl App {
     }
 }
 
+#[derive(Debug)]
 pub struct Workload {
     keys: Vec<String>,
     values: Vec<String>,
@@ -105,6 +106,7 @@ impl Workload {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct WorkloadConfig {
     pub num_key: usize,
     pub num_value: usize,

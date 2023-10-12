@@ -22,6 +22,7 @@ impl App {
     }
 }
 
+#[derive(Debug)]
 pub enum Workload {
     Null,
     Ycsb(ycsb::Workload),

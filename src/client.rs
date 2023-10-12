@@ -75,6 +75,7 @@ impl<T: Client> Client for Arc<T> {
     }
 }
 
+#[derive(Debug)]
 pub struct Benchmark<C> {
     clients: HashMap<Host, Arc<C>>,
     bootstrap: bool,
@@ -168,6 +169,7 @@ impl<C> Benchmark<C> {
     }
 }
 
+#[derive(Debug)]
 pub struct RunBenchmarkConfig {
     pub dispatch_config: Config,
     pub offset: usize,
@@ -191,7 +193,8 @@ where
         dispatch_thread: JoinHandle<()>,
         dispatch_handle: DispatchHandle,
     }
-
+    
+    // println!("{config:?}");
     let barrier = Arc::new(Barrier::new(config.num_group));
     let dispatch_config = Arc::new(config.dispatch_config);
     let groups = Vec::from_iter(

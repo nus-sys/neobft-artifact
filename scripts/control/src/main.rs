@@ -11,7 +11,7 @@ async fn main() {
         1, //
         1,
         1,
-        "neo-pk",
+        "unreplicated",
         App::Null,
         0.,
         1,
