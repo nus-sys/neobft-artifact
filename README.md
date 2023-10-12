@@ -95,16 +95,12 @@ dev:~$ cd neobft-artifact
 dev:~/neobft-artifact$ cargo -q run -p reload
     Finished release [optimized] target(s) in 0.16s
 * server started on server1
-* server started on server2
-* server started on server3
-* server started on server4
-* server started on client
 dev:~/neobft-artifact$ cargo -q run -p control -- hmac
 ```
 
 The results will be saved to `saved-hmac.csv`.
 The complete run takes minutes.
-If the evaluation crashed or killed manually, it will resume in the next run.
+If the evaluating is crashed or killed manually, it will resume in the next run.
 Just make sure to reload because running it again.
 
 After running, in the first terminal enter `ctrl-\` to stop switchd.
@@ -125,16 +121,23 @@ dev:~/neobft-artifact$ terraform -chdir=scripts/aws apply
 
 Enter "yes" when prompted.
 
+Initialize the cluster
+
+```
+dev:~/neobft-artifact$ cargo -q run -p neo-aws -- hmac
+```
+
 Reload servers and run control script
 
 ```
 dev:~/neobft-artifact$ cargo -q run -p reload --features aws
 * server started on ip-x-x-x-x.ap-east-1.compute.amazonaws.com
-... (output omitted)
-dev:~/neobft-artifact$ cargo -q run -p control --features aws -- aws
+dev:~/neobft-artifact$ cargo -q run -p control --features aws -- aws-hmac
 ```
 
-The results will be saved to `saved-aws.csv`.
+The results will be saved to `saved-aws-hmac.csv`.
+
+Repeat the process with `hmac` replaced with `fpga`.
 
 After running, destroy AWS cluster
 

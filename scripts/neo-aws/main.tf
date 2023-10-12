@@ -15,7 +15,7 @@ provider "aws" {
 
 variable "num-replica" {
   type    = number
-  default = 69
+  default = 67
 }
 
 data "aws_ami" "ubuntu" {
@@ -105,7 +105,7 @@ resource "aws_security_group" "neo" {
 }
 
 resource "aws_instance" "clients" {
-  count = 100
+  count = 10
 
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "c5a.xlarge"

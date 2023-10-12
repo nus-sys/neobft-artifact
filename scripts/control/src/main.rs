@@ -10,10 +10,11 @@ async fn main() {
     run(
         1, //
         1,
+        1,
         "neo-pk",
         App::Null,
         0.,
-        3,
+        1,
         &[],
         std::io::empty(),
     )
@@ -154,7 +155,18 @@ async fn run_full_throughput(
     saved_lines: &[&str],
     out: impl std::io::Write,
 ) {
-    run(5, 100, mode, app, drop_rate, num_faulty, saved_lines, out).await
+    run(
+        5,
+        100,
+        1,
+        mode,
+        app,
+        drop_rate,
+        num_faulty,
+        saved_lines,
+        out,
+    )
+    .await
 }
 
 async fn run_clients(
@@ -163,9 +175,20 @@ async fn run_clients(
     saved_lines: &[&str],
     mut out: impl std::io::Write,
 ) {
-    run(1, 1, mode, App::Null, 0., 1, saved_lines, &mut out).await;
+    run(1, 1, 1, mode, App::Null, 0., 1, saved_lines, &mut out).await;
     for num_client in num_clients_in_5_groups {
-        run(5, num_client, mode, App::Null, 0., 1, saved_lines, &mut out).await
+        run(
+            5,
+            num_client,
+            1,
+            mode,
+            App::Null,
+            0.,
+            1,
+            saved_lines,
+            &mut out,
+        )
+        .await
     }
 }
 
@@ -173,6 +196,7 @@ async fn run_clients(
 async fn run(
     num_group: usize,
     num_client: usize,
+    num_client_host: usize,
     mode: &str,
     app: App,
     drop_rate: f64,
@@ -199,6 +223,7 @@ async fn run(
         multicast_addr = SocketAddr::from(([10, 0, 0, 255], 60004));
 
         client_hosts = ["nsl-node10.d2"];
+        assert_eq!(num_client_host, 1);
         replica_hosts = [
             "nsl-node1.d2",
             "nsl-node2.d2",
@@ -214,9 +239,12 @@ async fn run(
         client_addrs = output
             .client_ips
             .into_iter()
-            .map(|ip| SocketAddr::from((ip.parse::<Ipv4Addr>().unwrap(), 20000)));
-        assert_eq!(num_group, 1);
-        assert_eq!(num_client, 1);
+            .map(|ip| ip.parse::<Ipv4Addr>().unwrap())
+            .flat_map(|ip| {
+                (20000..)
+                    .take(num_group * num_client)
+                    .map(move |port| SocketAddr::from((ip, port)))
+            });
         replica_addrs = Vec::from_iter(
             output
                 .replica_ips
@@ -261,7 +289,6 @@ async fn run(
         multicast_addr,
         num_faulty,
         drop_rate,
-        // drop_rate: 1e-3,
         seed: 3603269_3604874,
         role,
     };
@@ -306,7 +333,7 @@ async fn run(
         offset: 0,
         duration: Duration::from_secs(10),
     };
-    for client_host in &client_hosts {
+    for client_host in client_hosts.iter().take(num_client_host) {
         sessions.push(spawn(host_session(
             client_host.to_string(),
             task(Role::BenchmarkClient(benchmark)),
@@ -316,7 +343,7 @@ async fn run(
         benchmark.offset += num_group * num_client;
     }
 
-    for (index, client_host) in client_hosts.into_iter().enumerate() {
+    for (index, client_host) in client_hosts.into_iter().enumerate().take(num_client_host) {
         loop {
             let response = client
                 .get(format!("http://{client_host}:9999/benchmark"))
