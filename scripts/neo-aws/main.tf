@@ -13,6 +13,11 @@ provider "aws" {
   region = "ap-east-1"
 }
 
+variable "num-replica" {
+  type    = number
+  default = 69
+}
+
 data "aws_ami" "ubuntu" {
   most_recent = true
 
@@ -58,26 +63,26 @@ resource "aws_route_table_association" "_1" {
   subnet_id      = resource.aws_subnet.neo.id
 }
 
-resource "aws_ec2_transit_gateway" "neo" {
-  multicast_support = "enable"
-}
+# resource "aws_ec2_transit_gateway" "neo" {
+#   multicast_support = "enable"
+# }
 
-resource "aws_ec2_transit_gateway_vpc_attachment" "neo" {
-  subnet_ids         = [aws_subnet.neo.id]
-  transit_gateway_id = aws_ec2_transit_gateway.neo.id
-  vpc_id             = aws_vpc.neo.id
-}
+# resource "aws_ec2_transit_gateway_vpc_attachment" "neo" {
+#   subnet_ids         = [aws_subnet.neo.id]
+#   transit_gateway_id = aws_ec2_transit_gateway.neo.id
+#   vpc_id             = aws_vpc.neo.id
+# }
 
-resource "aws_ec2_transit_gateway_multicast_domain" "neo" {
-  transit_gateway_id     = aws_ec2_transit_gateway.neo.id
-  static_sources_support = "enable"
-}
+# resource "aws_ec2_transit_gateway_multicast_domain" "neo" {
+#   transit_gateway_id     = aws_ec2_transit_gateway.neo.id
+#   static_sources_support = "enable"
+# }
 
-resource "aws_ec2_transit_gateway_multicast_domain_association" "neo" {
-  subnet_id                           = aws_subnet.neo.id
-  transit_gateway_attachment_id       = aws_ec2_transit_gateway_vpc_attachment.neo.id
-  transit_gateway_multicast_domain_id = aws_ec2_transit_gateway_multicast_domain.neo.id
-}
+# resource "aws_ec2_transit_gateway_multicast_domain_association" "neo" {
+#   subnet_id                           = aws_subnet.neo.id
+#   transit_gateway_attachment_id       = aws_ec2_transit_gateway_vpc_attachment.neo.id
+#   transit_gateway_multicast_domain_id = aws_ec2_transit_gateway_multicast_domain.neo.id
+# }
 
 resource "aws_security_group" "neo" {
   vpc_id = resource.aws_vpc.neo.id
@@ -108,7 +113,7 @@ resource "aws_instance" "client" {
 }
 
 resource "aws_instance" "replicas" {
-  count = 3
+  count = var.num-replica
 
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "c5a.xlarge"
@@ -125,29 +130,29 @@ resource "aws_instance" "sequencer" {
   key_name               = "Ephemeral"
 }
 
-# resource "aws_instance" "relays" {
-#   count = 1
+resource "aws_instance" "relays" {
+  count = 6
 
-#   ami                    = data.aws_ami.ubuntu.id
-#   instance_type          = "c5a.4xlarge"
-#   subnet_id              = resource.aws_subnet.neo.id
-#   vpc_security_group_ids = [resource.aws_security_group.neo.id]
-#   key_name               = "Ephemeral"
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = "c5a.4xlarge"
+  subnet_id              = resource.aws_subnet.neo.id
+  vpc_security_group_ids = [resource.aws_security_group.neo.id]
+  key_name               = "Ephemeral"
+}
+
+# resource "aws_ec2_transit_gateway_multicast_group_source" "source" {
+#   group_ip_address                    = "224.0.0.1"
+#   network_interface_id                = aws_instance.sequencer.primary_network_interface_id
+#   transit_gateway_multicast_domain_id = aws_ec2_transit_gateway_multicast_domain_association.neo.transit_gateway_multicast_domain_id
 # }
 
-resource "aws_ec2_transit_gateway_multicast_group_source" "source" {
-  group_ip_address                    = "224.0.0.1"
-  network_interface_id                = aws_instance.sequencer.primary_network_interface_id
-  transit_gateway_multicast_domain_id = aws_ec2_transit_gateway_multicast_domain_association.neo.transit_gateway_multicast_domain_id
-}
+# resource "aws_ec2_transit_gateway_multicast_group_member" "members" {
+#   count = var.num-replica
 
-resource "aws_ec2_transit_gateway_multicast_group_member" "members" {
-  count = 3
-
-  group_ip_address                    = "224.0.0.1"
-  network_interface_id                = aws_instance.replicas[count.index].primary_network_interface_id
-  transit_gateway_multicast_domain_id = aws_ec2_transit_gateway_multicast_domain_association.neo.transit_gateway_multicast_domain_id
-}
+#   group_ip_address                    = "224.0.0.1"
+#   network_interface_id                = aws_instance.replicas[count.index].primary_network_interface_id
+#   transit_gateway_multicast_domain_id = aws_ec2_transit_gateway_multicast_domain_association.neo.transit_gateway_multicast_domain_id
+# }
 
 output "client-host" {
   value = aws_instance.client.public_dns
@@ -173,10 +178,10 @@ output "sequencer-ip" {
   value = aws_instance.sequencer.private_ip
 }
 
-# output "relay-hosts" {
-#   value = aws_instance.relays[*].public_dns
-# }
+output "relay-hosts" {
+  value = aws_instance.relays[*].public_dns
+}
 
-# output "relay-ips" {
-#   value = aws_instance.relays[*].private_ip
-# }
+output "relay-ips" {
+  value = aws_instance.relays[*].private_ip
+}

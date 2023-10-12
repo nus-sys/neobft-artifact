@@ -13,44 +13,17 @@ fn main() {
     assert!(status.success());
 
     let output = neo_aws::Output::new_terraform();
-    // let relay_args = format!(
-    //     "{} {} {}",
-    //     output.replica_ips[0], output.replica_ips[1], output.replica_ips[2]
-    // );
     let sequencer_args = format!(
-        "{} {} 224.0.0.1",
-        output.sequencer_ip,
+        "{} {}",
         match args().nth(1).as_deref() {
             Some("hmac") => "half-sip-hash",
             Some("fpga") => "k256",
             _ => unimplemented!(),
         },
-        // output.relay_ips[0]
+        output.relay_ips[0]
     );
     let mut sessions = Vec::from_iter(output.replica_hosts.into_iter().map(|host| {
-        // let relay_args = relay_args.clone();
         spawn(move || {
-            // let status = Command::new("rsync")
-            //     .arg("target/release/relay")
-            //     .arg(format!("{host}:"))
-            //     .status()
-            //     .unwrap();
-            // assert!(status.success());
-
-            // Command::new("ssh")
-            //     .args([&host, "pkill", "-KILL", "--full", "relay"])
-            //     .status()
-            //     .unwrap();
-
-            // let status = Command::new("ssh")
-            //     .arg(host)
-            //     .arg(format!(
-            //         "./relay {relay_args} 1>./relay-stdout.txt 2>./relay-stderr.txt &"
-            //     ))
-            //     .status()
-            //     .unwrap();
-            // assert!(status.success());
-
             let status = Command::new("ssh")
                 .arg(host)
                 .arg(concat!(
@@ -63,6 +36,42 @@ fn main() {
             assert!(status.success());
         })
     }));
+    let mut relay_args = vec![output.relay_ips[1..].join(" ")];
+    for i in 0..5 {
+        relay_args.push(
+            Vec::from_iter(output.replica_ips.iter().skip(i * 14).take(14).cloned()).join(" "),
+        )
+    }
+    sessions.extend(
+        output
+            .relay_hosts
+            .into_iter()
+            .zip(relay_args)
+            .map(|(host, args)| {
+                spawn(move || {
+                    let status = Command::new("rsync")
+                        .arg("target/release/relay")
+                        .arg(format!("{host}:"))
+                        .status()
+                        .unwrap();
+                    assert!(status.success());
+
+                    Command::new("ssh")
+                        .args([&host, "pkill", "-KILL", "--full", "relay"])
+                        .status()
+                        .unwrap();
+
+                    let status = Command::new("ssh")
+                        .arg(host)
+                        .arg(format!(
+                            "./relay {args} 1>./relay-stdout.txt 2>./relay-stderr.txt &"
+                        ))
+                        .status()
+                        .unwrap();
+                    assert!(status.success());
+                })
+            }),
+    );
     sessions.push(spawn(move || {
     let status = Command::new("rsync")
         .arg("target/release/neo-sequencer")

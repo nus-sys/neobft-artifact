@@ -48,6 +48,7 @@ fn main() {
     if hosts.contains(&LOCALHOST.to_string()) {
         host_session(LOCALHOST)
     }
+    println!()
 }
 
 fn host_session(host: &str) {
@@ -87,5 +88,5 @@ fn host_session(host: &str) {
         .status()
         .unwrap();
     assert!(status.success());
-    println!("* server started on {host}")
+    eprint!("* server started on {host}        \r")
 }

@@ -16,7 +16,7 @@ async fn main() {
         "neo-pk",
         App::Null,
         0.,
-        4,
+        3,
         &[],
         std::io::empty(),
     )
@@ -118,7 +118,7 @@ async fn main() {
                     mode,
                     ycsb_app,
                     0.,
-                    4,
+                    1,
                     &saved_lines,
                     &mut out,
                 )
@@ -131,7 +131,7 @@ async fn main() {
                     "neo-pk",
                     App::Null,
                     drop_rate,
-                    4,
+                    1,
                     &saved_lines,
                     &mut out,
                 )
@@ -160,7 +160,7 @@ async fn main() {
                 "neo-hm",
                 ycsb_app,
                 0.,
-                4,
+                1,
                 &saved_lines,
                 &mut out,
             )
@@ -172,7 +172,7 @@ async fn main() {
                     "neo-hm",
                     App::Null,
                     drop_rate,
-                    4,
+                    1,
                     &saved_lines,
                     &mut out,
                 )
@@ -201,11 +201,11 @@ async fn run_clients(
         num_client: 1,
         duration: Duration::from_secs(10),
     };
-    run(benchmark, mode, App::Null, 0., 4, saved_lines, &mut out).await;
+    run(benchmark, mode, App::Null, 0., 1, saved_lines, &mut out).await;
     benchmark.num_group = 5;
     for num_client in num_clients_in_5_groups {
         benchmark.num_client = num_client;
-        run(benchmark, mode, App::Null, 0., 4, saved_lines, &mut out).await
+        run(benchmark, mode, App::Null, 0., 1, saved_lines, &mut out).await
     }
 }
 
@@ -214,7 +214,7 @@ async fn run(
     mode: &str,
     app: App,
     drop_rate: f64,
-    num_replica: usize,
+    num_faulty: usize,
     saved_lines: &[&str],
     mut out: impl std::io::Write,
 ) {
@@ -232,8 +232,6 @@ async fn run(
         return;
     }
 
-    let num_faulty = (num_replica - 1) / 3;
-
     let client_addrs;
     let replica_addrs;
     let multicast_addr;
@@ -242,6 +240,7 @@ async fn run(
 
     #[cfg(not(feature = "aws"))]
     {
+        assert!(num_faulty <= 1);
         client_addrs = (20000..).map(|port| SocketAddr::from(([10, 0, 0, 10], port)));
         replica_addrs = vec![
             SocketAddr::from(([10, 0, 0, 1], 10000)),
@@ -262,7 +261,7 @@ async fn run(
 
     #[cfg(feature = "aws")]
     {
-        use std::{iter::repeat, net::Ipv4Addr};
+        use std::net::Ipv4Addr;
         let output = neo_aws::Output::new_terraform();
         let client_ip = output.client_ip.parse::<Ipv4Addr>().unwrap();
         client_addrs = (20000..).map(move |port| SocketAddr::from((client_ip, port)));
@@ -270,9 +269,13 @@ async fn run(
             output
                 .replica_ips
                 .into_iter()
-                .take(2 * num_faulty + 1)
                 .map(|ip| SocketAddr::from((ip.parse::<Ipv4Addr>().unwrap(), 10000)))
-                .chain(repeat(SocketAddr::from(([127, 0, 0, 1], 19999))).take(num_faulty)),
+                .chain(
+                    (30000..)
+                        .map(|port| SocketAddr::from(([127, 0, 0, 1], port)))
+                        .take(num_faulty),
+                )
+                .take(3 * num_faulty + 1),
         );
         multicast_addr =
             SocketAddr::from((output.sequencer_ip.parse::<Ipv4Addr>().unwrap(), 60004));

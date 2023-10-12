@@ -230,8 +230,11 @@ where
 
                 let benchmark_thread = std::thread::spawn(move || {
                     set_affinity(group_index * 3 + 2);
+                    if group_index == 0 {
+                        benchmark.close_loop(Duration::from_secs(1), &workload, handle.clone());
+                    }
                     barrier.wait();
-                    benchmark.close_loop(Duration::from_secs(3), &workload, handle.clone());
+                    benchmark.close_loop(Duration::from_secs(2), &workload, handle.clone());
                     benchmark.latencies.clear();
                     benchmark.close_loop(duration, &workload, handle);
                     benchmark
