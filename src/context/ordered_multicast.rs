@@ -301,7 +301,9 @@ pub struct Sequencer {
 
 #[derive(Debug, Clone)]
 enum SequencerCrypto {
-    HalfSipHash, // TODO
+    HalfSipHash {
+        num_replica: usize,
+    },
     K256 {
         state: Sha256,
         signing_key: Arc<SigningKey>,
@@ -309,10 +311,10 @@ enum SequencerCrypto {
 }
 
 impl Sequencer {
-    pub fn new_half_sip_hash() -> Self {
+    pub fn new_half_sip_hash(num_replica: usize) -> Self {
         Self {
             seq_num: 0,
-            crypto: SequencerCrypto::HalfSipHash,
+            crypto: SequencerCrypto::HalfSipHash { num_replica },
         }
     }
 
@@ -325,32 +327,80 @@ impl Sequencer {
             },
         }
     }
+}
 
-    pub fn process(&mut self, buf: &mut [u8]) {
+#[derive(Debug, Clone)]
+pub struct SequencerProcess {
+    buf: Vec<u8>,
+    seq_num: u32,
+    crypto: SequencerProcessCrypto,
+}
+
+#[derive(Debug, Clone)]
+enum SequencerProcessCrypto {
+    HalfSipHash {
+        num_replica: usize,
+    },
+    K256 {
+        linked: [u8; 32],
+        state: Sha256,
+        signing_key: Arc<SigningKey>,
+    },
+}
+
+impl Sequencer {
+    pub fn process(&mut self, buf: Vec<u8>) -> SequencerProcess {
         self.seq_num += 1;
-        buf[0..4].copy_from_slice(&self.seq_num.to_be_bytes());
-        match &mut self.crypto {
-            // TODO
-            SequencerCrypto::HalfSipHash => buf[4..20].copy_from_slice(&[0xcc; 16]),
-            SequencerCrypto::K256 { state, .. } => {
+        let crypto = match &mut self.crypto {
+            &mut SequencerCrypto::HalfSipHash { num_replica } => {
+                SequencerProcessCrypto::HalfSipHash { num_replica }
+            }
+            SequencerCrypto::K256 { state, signing_key } => {
                 let mut digest = [0; 32];
                 digest.copy_from_slice(&buf[68..100]);
-                let linked = std::mem::take(state).finalize();
-                buf[68..100].copy_from_slice(&linked);
-                *state = state_internal(linked.into(), digest, self.seq_num);
+                let linked = std::mem::take(state).finalize().into();
+                *state = state_internal(linked, digest, self.seq_num);
+                SequencerProcessCrypto::K256 {
+                    linked,
+                    state: state.clone(),
+                    signing_key: signing_key.clone(),
+                }
             }
+        };
+        SequencerProcess {
+            buf,
+            seq_num: self.seq_num,
+            crypto,
         }
     }
+}
 
-    pub fn postprocess(&self) -> impl FnOnce(&mut [u8]) + Send + Sync + 'static {
-        let crypto = self.crypto.clone();
-        move |buf: &mut [u8]| match crypto {
-            SequencerCrypto::HalfSipHash => {}
-            SequencerCrypto::K256 { state, signing_key } => {
+impl SequencerProcess {
+    pub fn apply(mut self, send: impl Fn(&[u8])) {
+        self.buf[0..4].copy_from_slice(&self.seq_num.to_be_bytes());
+        match self.crypto {
+            SequencerProcessCrypto::HalfSipHash { num_replica } => {
+                let mut offset = 0;
+                while offset < num_replica as u8 {
+                    self.buf[4..8].copy_from_slice(&[0xcc, 0xcc, 0xcc, offset]);
+                    self.buf[8..12].copy_from_slice(&[0xcc, 0xcc, 0xcc, offset + 1]);
+                    self.buf[12..16].copy_from_slice(&[0xcc, 0xcc, 0xcc, offset + 2]);
+                    self.buf[16..20].copy_from_slice(&[0xcc, 0xcc, 0xcc, offset + 3]);
+                    send(&self.buf);
+                    offset += 4
+                }
+            }
+            SequencerProcessCrypto::K256 {
+                linked,
+                state,
+                signing_key,
+            } => {
+                self.buf[68..100].copy_from_slice(&linked);
                 let signature: k256::ecdsa::Signature = signing_key.sign_digest(state);
                 let mut signature = signature.to_bytes();
                 signature.reverse();
-                buf[4..68].copy_from_slice(&signature)
+                self.buf[4..68].copy_from_slice(&signature);
+                send(&self.buf)
             }
         }
     }

@@ -110,6 +110,9 @@ You don't need to check for throughput in the first terminal.
 In the first terminal, `ctrl-\` to stop switchd.
 
 To collect data for public key cryptography variant, repeat the same process while replacing `hmac` with `fpga`, i.e. `neo_hmac_bench` to `neo_fpga_bench`, `./setup_hmac.sh` to `./setup_fpga.sh`, `./pktgen_hmac.sh` to `./pktgen_fpga.sh`.
+
+The throughput shown in the first terminal is 1.11Mpps.
+
 Save the results to `results_fpgaXX.log` files.
 
 # Collect Data for Part 2
