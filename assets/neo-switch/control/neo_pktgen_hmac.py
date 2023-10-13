@@ -18,9 +18,15 @@ pktgen.enable(68)  # port 68
 # create the app configuration
 app_cfg = pktgen.AppCfg_t()
 app_cfg.trigger_type = pktgen.TriggerType_t.TIMER_PERIODIC
-app_cfg.timer = 13 # 16 ports @ 76.24Mpps # 97-98%
-# app_cfg.timer = 26 # 16 ports @ 38.12Mpps # 49%
-# app_cfg.timer = 51 # 16 ports @ 19.36Mpps # 24%
+load = int(input('load: '))
+if load == 99:
+    app_cfg.timer = 13 # 16 ports @ 76.24Mpps # 97-98%
+elif load == 50:
+    app_cfg.timer = 26 # 16 ports @ 38.12Mpps # 49%
+elif load == 25:
+    app_cfg.timer = 51 # 16 ports @ 19.36Mpps # 24%
+else:
+    raise ValueError()
 
 # app_cfg.batch_count = 0 # sets no. of batches that we want to have; the batch_id field of pktgen header keeps incrementing until this value is reached
 # app_cfg.pkt_count = PKTS_COUNT - 1 # sets no. of packets that we want to have in a batch; the packet_id field of pktgen header keeps incrementing until this value is reached. We are doing -1 in the above case because the numbering is starting from 0. pkt_count = 0 means 1 pkt per batch and batch_count = 0 means 1 batch per trigger

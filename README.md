@@ -36,10 +36,14 @@ switch:~$ cd neo-switch
 switch:~/neo-switch$ ./setup_hmac.sh
 ```
 
-Start packet generation script
+### Generate Packets for 99% Load
+
+Start packet generation script, input "99" for load
 
 ```
 switch:~/neo-switch$ ./pktgen_hmac.sh
+... (output omitted)
+load: 99
 ```
 
 In the third terminal, capture packets (assuming network interface named `ens1f0`)
@@ -51,22 +55,62 @@ server1:~$ sudo tcpdump -i ens1f0 -e | grep -e "00:00:00:" > extracted.log
 In the second terminal, start packet generation session
 
 ```
-PD(neo_fpga)[0]>>> pktgen.app_enable(1)
+PD(neo_hmac_bench)[0]>>> pktgen.app_enable(1)
 ```
+
+In the first terminal, check switch's instantaneous throughput (there may be some output after the prompt which is safe to be ignored)
+
+```
+bfshell> ucli
+Starting UCLI from bf-shell 
+
+Cannot read termcap database;
+using dumb terminal settings.
+bf-sde> pm rate-period 1
+bf-sde> pm rate-show
+-----+----+---+----+-------+---+-------+-------+---------+---------+----+----
+PORT |MAC |D_P|P/PT|SPEED  |RDY|RX Mpps|TX Mpps|RX Mbps  |TX Mbps  |RX %|TX %
+-----+----+---+----+-------+---+-------+-------+---------+---------+----+----
+9/0  |15/0|  0|0/ 0|100G   |UP |   0.00|  76.25|     0.00| 54904.47|  0%| 54%
+... (output omitted)
+bf-sde> exit
+```
+
+As shown in `Tx Mpps` column, the throughput is 76.25Mpps.
 
 After ~10 seconds, stop packet generation
 
 ```
-PD(neo_fpga)[0]>>> pktgen.app_disable(1)
+PD(neo_hmac_bench)[0]>>> pktgen.app_disable(1)
 ```
 
 Enter `ctrl-d` to exit session.
 
 In the third terminal, `ctrl-c` to stop packet capturing.
+Save MAC addresses into result file
+
+```
+server1:~$ awk -F ' ' '{print $6}' extracted.log > results_hmac99.log
+```
+
+### Generate Packets for 50% Load
+
+Repeat the process above, input "50" for load.
+Save the capturing results to `results_hmac50.log`.
+
+You don't need to check for throughput in the first terminal.
+
+### Generate Packets for 25% Load
+
+Repeat the process above, input "25" for load.
+Save the capturing results to `results_hmac25.log`.
+
+You don't need to check for throughput in the first terminal.
 
 In the first terminal, `ctrl-\` to stop switchd.
 
-To collect data for PKEY variant, repeat the same process while replacing `hmac` with `fpga`, i.e. `neo_hmac_bench` to `neo_fpga_bench`, `./setup_hmac.sh` to `./setup_fpga.sh`, `./pktgen_hmac.sh` to `./pktgen_fpga.sh`.
+To collect data for public key cryptography variant, repeat the same process while replacing `hmac` with `fpga`, i.e. `neo_hmac_bench` to `neo_fpga_bench`, `./setup_hmac.sh` to `./setup_fpga.sh`, `./pktgen_hmac.sh` to `./pktgen_fpga.sh`.
+Save the results to `results_fpgaXX.log` files.
 
 # Collect Data for Part 2
 
