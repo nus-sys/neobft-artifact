@@ -14,19 +14,19 @@ use tokio_util::sync::CancellationToken;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    run(
-        5, //
-        20,
-        1,
-        "unreplicated",
-        App::Null,
-        0.,
-        1,
-        &[],
-        std::io::empty(),
-    )
-    .await;
-    return;
+    // run(
+    //     5, //
+    //     20,
+    //     1,
+    //     "unreplicated",
+    //     App::Null,
+    //     0.,
+    //     1,
+    //     &[],
+    //     std::io::empty(),
+    // )
+    // .await;
+    // return;
 
     let ycsb_app = App::Ycsb(control_messages::YcsbConfig {
         num_key: 10 * 1000,
@@ -48,28 +48,39 @@ async fn main() {
                 .unwrap();
             run_clients(
                 "unreplicated",
-                [1].into_iter().chain((2..=20).step_by(2)),
+                [1].into_iter()
+                    .chain((2..=20).step_by(2))
+                    .chain((20..=100).step_by(10))
+                    .chain((100..=200).step_by(20)),
                 &saved_lines,
                 &mut out,
             )
             .await;
             run_clients(
                 "neo-pk",
-                [1].into_iter().chain((2..=40).step_by(2)),
+                [1].into_iter()
+                    .chain((2..=40).step_by(2))
+                    .chain((40..=100).step_by(10))
+                    .chain((100..=200).step_by(20)),
                 &saved_lines,
                 &mut out,
             )
             .await;
             run_clients(
                 "neo-bn",
-                [1].into_iter().chain((2..=60).step_by(2)),
+                [1].into_iter()
+                    .chain((2..=60).step_by(2))
+                    .chain((60..=100).step_by(10))
+                    .chain((100..=300).step_by(20)),
                 &saved_lines,
                 &mut out,
             )
             .await;
             run_clients(
                 "pbft",
-                [1].into_iter().chain((2..=60).step_by(2)),
+                [1].into_iter()
+                    .chain((2..=60).step_by(2))
+                    .chain((60..=100).step_by(10)),
                 &saved_lines,
                 &mut out,
             )
@@ -97,7 +108,10 @@ async fn main() {
             .await;
             run_clients(
                 "minbft",
-                [1].into_iter().chain((2..=60).step_by(2)),
+                [1].into_iter()
+                    .chain((2..=60).step_by(2))
+                    .chain((60..=100).step_by(10))
+                    .chain((100..=300).step_by(20)),
                 &saved_lines,
                 &mut out,
             )
@@ -116,9 +130,9 @@ async fn main() {
                 run_full_throughput(mode, ycsb_app, 0., &saved_lines, &mut out).await
             }
 
-            for drop_rate in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3] {
-                run_full_throughput("neo-pk", App::Null, drop_rate, &saved_lines, &mut out).await
-            }
+            // for drop_rate in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3] {
+            //     run_full_throughput("neo-pk", App::Null, drop_rate, &saved_lines, &mut out).await
+            // }
         }
         Some("hmac") => {
             let saved = std::fs::read_to_string("saved-hmac.csv").unwrap_or_default();

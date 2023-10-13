@@ -18,7 +18,7 @@ During the evaluation, you will only need to issue commands from switch, the fir
 
 # Collect Data for Part 1
 
-Open three terminals, the first 2 on switch and the third on the first server.
+Open three terminals, the first two on switch and the third on the first server.
 
 In the first terminal, start switchd for HMAC program 
 
@@ -131,6 +131,7 @@ Reload servers and run control script
 
 ```
 dev:~/neobft-artifact$ cargo -q run -p reload --features aws
+    Finished release [optimized] target(s) in 0.07s
 * server started on ip-x-x-x-x.ap-east-1.compute.amazonaws.com
 dev:~/neobft-artifact$ cargo -q run -p control --features aws -- aws-hmac
 ```
