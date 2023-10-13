@@ -101,7 +101,10 @@ async fn main() {
             .await;
             run_clients(
                 "hotstuff",
-                [1].into_iter().chain((2..=60).step_by(2)),
+                [1].into_iter()
+                    .chain((2..=60).step_by(2))
+                    .chain((60..=100).step_by(10))
+                    .chain((100..=200).step_by(20)),
                 &saved_lines,
                 &mut out,
             )
