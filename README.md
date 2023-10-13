@@ -2,17 +2,17 @@
 
 The evaluation of NeoBFT consists of three parts: 
 * AOM micro-benchmarks (section 6.1, figure 4-6)
-* 4 replica performance benchmarks (section 6.2, 6.4 and 6.5, figure 7, 9 and 10)
+* four replica performance benchmarks (section 6.2, 6.4 and 6.5, figure 7, 9 and 10)
 * AWS deployment (section 6.3, figure 8).
 
 The first two parts should be conducted on a hardware-accessible cluster.
-For part one, you will need a Tofino1 switch, a Xillinx FPGA and a server machine.
+For part one, you will need a Tofino1 switch, a Xillinx AU50 FPGA and a server machine.
 For part two, you will need the switch and the FPGA same as part 1, and five server machines, and the first four of which must have identical specification.
 
 For part three, you will need an AWS account (and pay for the bill after evaluation).
 
 For all three parts, you will also need a development environment that builds artifacts, controls the evaluation runs and collect results.
-Refer to the preparation document for detail setup.
+Refer to the [preparation guide](./prepare.md) for detail setup.
 
 During the evaluation, you will only need to issue commands from switch, the first server machine and development environment.
 
@@ -147,3 +147,20 @@ dev:~/neobft-artifact$ terraform -chdir=scripts/aws destroy
 ```
 
 Enter "yes" when prompted.
+
+# Visualization
+
+Collect all result files into `data` directory and refer to the notebooks.
+
+# Disclaimer
+
+This is a complete overhaul of the original version.
+The exact code the produces camera-ready results can be found in `master-legacy` branch.
+
+Noticeable implementation differences:
+* Replace public key cryptography library `secp256k1` to `k256`
+* Remove cryptography offloading and worker threads
+* Apply the same pace-based adaptive batching strategy to all protocols universally
+  * The Zyzzyva implementation is currently buggy under the new strategy, but its faulty variant seems normal
+
+These changes help produce more realistic results, better explore protocol's best and typical latency, and reduce resource utilization.

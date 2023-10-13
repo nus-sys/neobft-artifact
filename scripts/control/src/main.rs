@@ -15,10 +15,10 @@ use tokio_util::sync::CancellationToken;
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     // run(
-    //     5, //
-    //     20,
+    //     1, //
     //     1,
-    //     "unreplicated",
+    //     1,
+    //     "neo-pk",
     //     App::Null,
     //     0.,
     //     1,
@@ -122,17 +122,30 @@ async fn main() {
                 "neo-pk",
                 "neo-bn",
                 "pbft",
-                "zyzzyva",
+                // "zyzzyva",
                 // "zyzzyva-f",
                 "hotstuff",
                 "minbft",
             ] {
                 run_full_throughput(mode, ycsb_app, 0., &saved_lines, &mut out).await
             }
+            run(5, 10, 1, "zyzzyva", ycsb_app, 0., 1, &saved_lines, &mut out).await;
+            run(
+                5,
+                6,
+                1,
+                "zyzzyva-f",
+                ycsb_app,
+                0.,
+                1,
+                &saved_lines,
+                &mut out,
+            )
+            .await;
 
-            // for drop_rate in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3] {
-            //     run_full_throughput("neo-pk", App::Null, drop_rate, &saved_lines, &mut out).await
-            // }
+            for drop_rate in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3] {
+                run_full_throughput("neo-pk", App::Null, drop_rate, &saved_lines, &mut out).await
+            }
         }
         Some("hmac") => {
             let saved = std::fs::read_to_string("saved-hmac.csv").unwrap_or_default();
@@ -145,7 +158,10 @@ async fn main() {
 
             run_clients(
                 "neo-hm",
-                [1].into_iter().chain((2..20).step_by(2)),
+                [1].into_iter()
+                    .chain((2..=40).step_by(2))
+                    .chain((40..=100).step_by(10))
+                    .chain((100..=200).step_by(20)),
                 &saved_lines,
                 &mut out,
             )
@@ -175,7 +191,7 @@ async fn run_full_throughput(
     saved_lines: &[&str],
     out: impl std::io::Write,
 ) {
-    run(5, 100, 1, mode, app, drop_rate, 1, saved_lines, out).await
+    run(5, 200, 1, mode, app, drop_rate, 1, saved_lines, out).await
 }
 
 async fn run_clients(
