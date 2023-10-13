@@ -106,11 +106,11 @@ async fn main() {
                 "hotstuff",
                 "minbft",
             ] {
-                run_full_throughput(mode, ycsb_app, 0., 1, &saved_lines, &mut out).await
+                run_full_throughput(mode, ycsb_app, 0., &saved_lines, &mut out).await
             }
 
             for drop_rate in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3] {
-                run_full_throughput("neo-pk", App::Null, drop_rate, 1, &saved_lines, &mut out).await
+                run_full_throughput("neo-pk", App::Null, drop_rate, &saved_lines, &mut out).await
             }
         }
         Some("hmac") => {
@@ -130,14 +130,14 @@ async fn main() {
             )
             .await;
 
-            run_full_throughput("neo-hm", ycsb_app, 0., 1, &saved_lines, &mut out).await;
+            run_full_throughput("neo-hm", ycsb_app, 0., &saved_lines, &mut out).await;
 
             for drop_rate in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3] {
-                run_full_throughput("neo-hm", App::Null, drop_rate, 1, &saved_lines, &mut out).await
+                run_full_throughput("neo-hm", App::Null, drop_rate, &saved_lines, &mut out).await
             }
         }
         #[cfg(not(feature = "aws"))]
-        Some("aws") => panic!("require enable aws feature"),
+        Some("aws-hmac") | Some("aws-fpga") => panic!("require enable aws feature"),
         #[cfg(feature = "aws")]
         Some("aws") => {
             //
@@ -151,22 +151,10 @@ async fn run_full_throughput(
     mode: &str,
     app: App,
     drop_rate: f64,
-    num_faulty: usize,
     saved_lines: &[&str],
     out: impl std::io::Write,
 ) {
-    run(
-        5,
-        100,
-        1,
-        mode,
-        app,
-        drop_rate,
-        num_faulty,
-        saved_lines,
-        out,
-    )
-    .await
+    run(5, 100, 1, mode, app, drop_rate, 1, saved_lines, out).await
 }
 
 async fn run_clients(
@@ -250,6 +238,7 @@ async fn run(
                 .replica_ips
                 .into_iter()
                 .map(|ip| SocketAddr::from((ip.parse::<Ipv4Addr>().unwrap(), 10000)))
+                // TODO clarify this and avoid pitfall
                 .chain(
                     (30000..)
                         .map(|port| SocketAddr::from(([127, 0, 0, 1], port)))
@@ -260,13 +249,10 @@ async fn run(
         multicast_addr =
             SocketAddr::from((output.sequencer_ip.parse::<Ipv4Addr>().unwrap(), 60004));
         client_hosts = output.client_hosts;
-        // TODO clarify this and avoid pitfall
-        replica_hosts = output.replica_hosts[..2 * num_faulty + 1].to_vec();
+        replica_hosts = output.replica_hosts
     }
 
-    let client_addrs =
-        Vec::from_iter(client_addrs.take(num_group * num_client * client_hosts.len()));
-
+    let client_addrs = Vec::from_iter(client_addrs.take(num_group * num_client * num_client_host));
     let id = format!(
         "{mode},{},{drop_rate},{},{num_faulty}",
         match app {
@@ -303,27 +289,27 @@ async fn run(
         })
     });
 
-    let client = Arc::new(Client::new());
-    let mut sessions = Vec::new();
+    let http_client = Arc::new(Client::new());
     println!("* start replicas");
-    for (index, host) in replica_hosts.into_iter().enumerate() {
-        if mode == "unreplicated" && index > 0 {
-            break;
-        }
-        if mode != "zyzzyva" && index >= replica_addrs.len() - num_faulty {
-            break;
-        }
-        #[allow(clippy::int_plus_one)]
-        if mode == "minbft" && index >= num_faulty + 1 {
-            break;
-        }
-        sessions.push(spawn(host_session(
-            host,
-            task(Role::Replica(Replica { index: index as _ })),
-            client.clone(),
-            cancel.clone(),
-        )));
-    }
+    let mut sessions = Vec::from_iter(
+        replica_hosts
+            .into_iter()
+            .enumerate()
+            .take(match mode {
+                "unreplicated" => 1,
+                "minbft" => num_faulty + 1,
+                "zyzzyva" => 3 * num_faulty + 1,
+                _ => 2 * num_faulty + 1,
+            })
+            .map(|(index, host)| {
+                spawn(host_session(
+                    host,
+                    task(Role::Replica(Replica { index: index as _ })),
+                    http_client.clone(),
+                    cancel.clone(),
+                ))
+            }),
+    );
 
     sleep(Duration::from_secs(1)).await;
     println!("* start clients");
@@ -337,7 +323,7 @@ async fn run(
         sessions.push(spawn(host_session(
             client_host.to_string(),
             task(Role::BenchmarkClient(benchmark)),
-            client.clone(),
+            http_client.clone(),
             cancel.clone(),
         )));
         benchmark.offset += num_group * num_client;
@@ -345,7 +331,7 @@ async fn run(
 
     for (index, client_host) in client_hosts.into_iter().enumerate().take(num_client_host) {
         loop {
-            let response = client
+            let response = http_client
                 .get(format!("http://{client_host}:9999/benchmark"))
                 .send()
                 .await
