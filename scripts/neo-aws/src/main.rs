@@ -1,4 +1,4 @@
-use std::{env::args, process::Command, thread::spawn};
+use std::{process::Command, thread::spawn};
 
 fn main() {
     let status = Command::new("cargo")
@@ -13,15 +13,15 @@ fn main() {
     assert!(status.success());
 
     let output = neo_aws::Output::new_terraform();
-    let sequencer_args = format!(
-        "{} {}",
-        match args().nth(1).as_deref() {
-            Some("hmac") => "half-sip-hash",
-            Some("fpga") => "k256",
-            _ => unimplemented!(),
-        },
-        output.relay_ips[0]
-    );
+    // let sequencer_args = format!(
+    //     "{} {}",
+    //     match args().nth(1).as_deref() {
+    //         Some("hmac") => "half-sip-hash",
+    //         Some("fpga") => "k256",
+    //         _ => unimplemented!(),
+    //     },
+    //     output.relay_ips[0]
+    // );
     let mut sessions = Vec::from_iter(output.replica_hosts.into_iter().map(|host| {
         spawn(move || {
             let status = Command::new("ssh")
@@ -73,32 +73,32 @@ fn main() {
             }),
     );
     sessions.push(spawn(move || {
-    let status = Command::new("rsync")
-        .arg("target/release/neo-sequencer")
-        .arg(format!("{}:", output.sequencer_host))
-        .status()
-        .unwrap();
-    assert!(status.success());
-
-    Command::new("ssh")
-        .args([
-            &output.sequencer_host,
-            "pkill",
-            "-KILL",
-            "--full",
-            "neo-sequencer",
-        ])
-        .status()
-        .unwrap();
-
-    let status = Command::new("ssh")
-            .arg(output.sequencer_host)
-            .arg(format!(
-                "./neo-sequencer {sequencer_args} 1>./neo-sequencer-stdout.txt 2>./neo-sequencer-stderr.txt &"
-            ))
+        let status = Command::new("rsync")
+            .arg("target/release/neo-sequencer")
+            .arg(format!("{}:", output.sequencer_host))
             .status()
             .unwrap();
-    assert!(status.success());
+        assert!(status.success());
+
+        // Command::new("ssh")
+        //     .args([
+        //         &output.sequencer_host,
+        //         "pkill",
+        //         "-KILL",
+        //         "--full",
+        //         "neo-sequencer",
+        //     ])
+        //     .status()
+        //     .unwrap();
+
+        // let status = Command::new("ssh")
+        //         .arg(output.sequencer_host)
+        //         .arg(format!(
+        //             "./neo-sequencer {sequencer_args} 1>./neo-sequencer-stdout.txt 2>./neo-sequencer-stderr.txt &"
+        //         ))
+        //         .status()
+        //         .unwrap();
+        // assert!(status.success());
     }));
     for thread in sessions {
         thread.join().unwrap()

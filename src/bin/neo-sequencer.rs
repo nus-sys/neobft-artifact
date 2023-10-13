@@ -17,7 +17,7 @@ fn main() {
         Some("k256") => Sequencer::new_k256(),
         _ => unimplemented!(),
     };
-    let multicast_ip = args().nth(2).unwrap().parse::<Ipv4Addr>().unwrap();
+    let multicast_ip = args().nth(3).unwrap().parse::<Ipv4Addr>().unwrap();
 
     let socket = Arc::new(UdpSocket::bind(("0.0.0.0", 60004)).unwrap());
     let messages = flume::bounded(1024);

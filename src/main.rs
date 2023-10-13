@@ -69,7 +69,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                 duration: config.duration,
                 workload,
             };
-            println!("{benchmark_config:?}");
+            // println!("{benchmark_config:?}");
             let state = state.clone();
             tokio::task::spawn_blocking(move || {
                 let latencies = match &*task.mode {

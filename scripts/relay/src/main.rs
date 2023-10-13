@@ -20,7 +20,8 @@ pub fn set_affinity(index: usize) {
 fn main() {
     let ips = Vec::from_iter(args().skip(1).map(|ip| ip.parse::<Ipv4Addr>().unwrap()));
     let socket = Arc::new(UdpSocket::bind("0.0.0.0:60004").unwrap());
-    let messages = flume::bounded::<Vec<_>>(1024);
+    // let messages = flume::bounded::<Vec<_>>(1024);
+    let messages = flume::unbounded::<Vec<_>>();
     for ((index, messages), (socket, ips)) in repeat(messages.1)
         .take(usize::from(available_parallelism().unwrap()) - 1)
         .enumerate()

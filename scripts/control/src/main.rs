@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write,
     net::SocketAddr,
     sync::{
         atomic::{AtomicBool, Ordering::SeqCst},
@@ -14,20 +15,6 @@ use tokio_util::sync::CancellationToken;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    // run(
-    //     1, //
-    //     1,
-    //     1,
-    //     "neo-pk",
-    //     App::Null,
-    //     0.,
-    //     1,
-    //     &[],
-    //     std::io::empty(),
-    // )
-    // .await;
-    // return;
-
     let ycsb_app = App::Ycsb(control_messages::YcsbConfig {
         num_key: 10 * 1000,
         num_value: 100 * 1000,
@@ -177,10 +164,62 @@ async fn main() {
             }
         }
         #[cfg(not(feature = "aws"))]
-        Some("aws-hmac") | Some("aws-fpga") => panic!("require enable aws feature"),
+        Some("aws") => panic!("require enable aws feature"),
         #[cfg(feature = "aws")]
         Some("aws") => {
-            //
+            let saved = std::fs::read_to_string("saved-aws.csv").unwrap_or_default();
+            let saved_lines = Vec::from_iter(saved.lines());
+            let mut out = std::fs::File::options()
+                .create(true)
+                .append(true)
+                .open("saved-aws.csv")
+                .unwrap();
+
+            for num_faulty in 2..=33 {
+                run(
+                    1,
+                    1,
+                    match num_faulty {
+                        n if n > 32 => 6,
+                        n if n > 29 => 7,
+                        n if n > 26 => 8,
+                        n if n > 24 => 9,
+                        n if n > 21 => 10,
+                        n if n > 19 => 11,
+                        n if n > 17 => 12,
+                        n if n > 14 => 14,
+                        n if n > 11 => 15,
+                        n if n > 9 => 20,
+                        n if n > 7 => 30,
+                        n if n > 5 => 44,
+                        n if n > 3 => 72,
+                        3 => 80,
+                        2 => 100,
+                        _ => unreachable!(),
+                    },
+                    "neo-hm",
+                    App::Null,
+                    0.,
+                    num_faulty,
+                    &saved_lines,
+                    &mut out,
+                )
+                .await
+            }
+            for num_faulty in 2..=33 {
+                run(
+                    1,
+                    1,
+                    100,
+                    "neo-pk",
+                    App::Null,
+                    0.,
+                    num_faulty,
+                    &saved_lines,
+                    &mut out,
+                )
+                .await
+            }
         }
 
         _ => unimplemented!(),
@@ -261,9 +300,10 @@ async fn run(
     }
 
     #[cfg(feature = "aws")]
+    let output = neo_aws::Output::new_terraform();
+    #[cfg(feature = "aws")]
     {
         use std::net::Ipv4Addr;
-        let output = neo_aws::Output::new_terraform();
         client_addrs = output
             .client_ips
             .into_iter()
@@ -273,17 +313,21 @@ async fn run(
                     .take(num_group * num_client)
                     .map(move |port| SocketAddr::from((ip, port)))
             });
+        #[allow(clippy::int_plus_one)]
+        {
+            assert!(
+                output.replica_ips.len() >= 2 * num_faulty + 1,
+                "there are only {} replicas",
+                output.replica_ips.len()
+            )
+        }
         replica_addrs = Vec::from_iter(
             output
                 .replica_ips
                 .into_iter()
                 .map(|ip| SocketAddr::from((ip.parse::<Ipv4Addr>().unwrap(), 10000)))
                 // TODO clarify this and avoid pitfall
-                .chain(
-                    (30000..)
-                        .map(|port| SocketAddr::from(([127, 0, 0, 1], port)))
-                        .take(num_faulty),
-                )
+                .chain((30000..).map(|port| SocketAddr::from(([127, 0, 0, 1], port))))
                 .take(3 * num_faulty + 1),
         );
         multicast_addr =
@@ -306,6 +350,36 @@ async fn run(
     if saved_lines.iter().any(|line| line.starts_with(&id)) {
         println!("* skip because exist record found");
         return;
+    }
+
+    #[cfg(feature = "aws")]
+    {
+        std::process::Command::new("ssh")
+            .args([
+                &output.sequencer_host,
+                "pkill",
+                "-KILL",
+                "--full",
+                "neo-sequencer",
+            ])
+            .status()
+            .unwrap();
+
+        let status = std::process::Command::new("ssh")
+                .arg(output.sequencer_host)
+                .arg(format!(
+                    "./neo-sequencer {} {} {} 1>./neo-sequencer-stdout.txt 2>./neo-sequencer-stderr.txt &",
+                    match mode {
+                        "neo-hm" => "half-sip-hash",
+                        "neo-pk" => "k256",
+                        _ => unimplemented!(),
+                    },
+                    num_faulty * 3 + 1,
+                    output.relay_ips[0],
+                ))
+                .status()
+                .unwrap();
+        assert!(status.success());
     }
 
     let task = |role| Task {
@@ -362,6 +436,7 @@ async fn run(
         offset: 0,
         duration: Duration::from_secs(10),
     };
+    let mut delay = Duration::from_millis(100);
     for client_host in client_hosts.iter().take(num_client_host) {
         sessions.push(spawn(host_session(
             client_host.to_string(),
@@ -371,8 +446,12 @@ async fn run(
             panic.clone(),
         )));
         benchmark.offset += num_group * num_client;
+        sleep(delay).await;
+        delay = Duration::ZERO;
     }
 
+    let mut throughput = 0.;
+    let mut result = String::new();
     for (index, client_host) in client_hosts.into_iter().enumerate().take(num_client_host) {
         if index == 0 {
             sleep(Duration::from_secs(1)).await
@@ -388,12 +467,13 @@ async fn run(
                 println!("* {stats:?}");
                 assert_ne!(stats.throughput, 0.);
                 writeln!(
-                    out,
+                    &mut result,
                     "{id},{index},{},{}",
                     stats.throughput,
                     stats.average_latency.unwrap().as_nanos() as f64 / 1000.,
                 )
                 .unwrap();
+                throughput += stats.throughput;
                 break;
             }
             select! {
@@ -407,7 +487,11 @@ async fn run(
     for session in sessions {
         session.await.unwrap()
     }
-    assert!(!panic.load(SeqCst))
+    assert!(!panic.load(SeqCst));
+    if num_client_host > 1 {
+        println!("{throughput}");
+        out.write_all(result.as_bytes()).unwrap()
+    }
 }
 
 async fn host_session(

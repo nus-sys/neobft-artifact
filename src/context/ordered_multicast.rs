@@ -194,7 +194,7 @@ impl Variant {
                 if std::collections::hash_map::RandomState::new().hash_one(digest) == 0 {
                     return Err(Invalid::Private);
                 }
-                if codes[variant.index as usize] == [0; 4] {
+                if codes[variant.index as usize % 4] == [0; 4] {
                     return Err(Invalid::Private);
                 }
                 Ok(())
@@ -212,14 +212,15 @@ impl Variant {
 
 #[derive(Debug)]
 pub enum Delegate<M> {
-    Nop,
+    Nop(ReplicaIndex),
     K256(Option<(Host, OrderedMulticast<M>)>),
 }
 
 impl Variant {
     pub fn delegate<M>(&self) -> Delegate<M> {
         match self {
-            Self::Unreachable | Self::HalfSipHash(_) => Delegate::Nop,
+            Self::Unreachable => Delegate::Nop(ReplicaIndex::MAX),
+            Self::HalfSipHash(variant) => Delegate::Nop(variant.index),
             Self::K256(_) => Delegate::K256(Default::default()),
         }
     }
@@ -237,7 +238,13 @@ impl<M> Delegate<M> {
         N: Verify,
     {
         match self {
-            Self::Nop => {
+            &mut Self::Nop(index) => {
+                if let Signature::HalfSipHash(codes) = &message.signature {
+                    let code = codes[index as usize % 4];
+                    if code[0] == 0xcc && code[1] == 0xcc && code[2] == 0xcc && code[3] != index {
+                        return;
+                    }
+                }
                 let message = into(message);
                 message.verify(verifier).unwrap();
                 receivers.handle(Host::Multicast, remote, message)

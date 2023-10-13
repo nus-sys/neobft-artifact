@@ -119,6 +119,7 @@ impl crate::Client for Client {
         let Message::Reply(message) = message else {
             unimplemented!()
         };
+        // println!("{message:?}");
         let shared = &mut *self.shared.lock().unwrap();
         if message.request_num != shared.request_num {
             return;
@@ -223,6 +224,7 @@ impl Receivers for Replica {
     type Message = Message;
 
     fn handle(&mut self, receiver: Host, remote: Host, message: Self::Message) {
+        // println!("{message:?}");
         match (receiver, message) {
             (Host::Multicast, Message::Request(message)) => self.handle_request(remote, message),
             (Host::Replica(_), Message::Confirm(message)) => self.handle_confirm(remote, message),

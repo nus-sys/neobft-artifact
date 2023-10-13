@@ -163,7 +163,7 @@ Create AWS cluster
 
 ```
 dev:~$ cd neobft-artifact
-dev:~/neobft-artifact$ terraform -chdir=scripts/aws apply
+dev:~/neobft-artifact$ terraform -chdir=scripts/neo-aws apply
 ```
 
 Enter "yes" when prompted.
@@ -171,7 +171,7 @@ Enter "yes" when prompted.
 Initialize the cluster
 
 ```
-dev:~/neobft-artifact$ cargo -q run -p neo-aws -- hmac
+dev:~/neobft-artifact$ cargo -q run -p neo-aws
 ```
 
 Reload servers and run control script
@@ -180,17 +180,15 @@ Reload servers and run control script
 dev:~/neobft-artifact$ cargo -q run -p reload --features aws
     Finished release [optimized] target(s) in 0.07s
 * server started on ip-x-x-x-x.ap-east-1.compute.amazonaws.com
-dev:~/neobft-artifact$ cargo -q run -p control --features aws -- aws-hmac
+dev:~/neobft-artifact$ cargo -q run -p control --features aws -- aws
 ```
 
-The results will be saved to `saved-aws-hmac.csv`.
-
-Repeat the process with `hmac` replaced with `fpga`.
+The results will be saved to `saved-aws.csv`.
 
 After running, destroy AWS cluster
 
 ```
-dev:~/neobft-artifact$ terraform -chdir=scripts/aws destroy
+dev:~/neobft-artifact$ terraform -chdir=scripts/neo-aws destroy
 ```
 
 Enter "yes" when prompted.

@@ -105,10 +105,10 @@ resource "aws_security_group" "neo" {
 }
 
 resource "aws_instance" "clients" {
-  count = 10
+  count = 100
 
   ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "c5a.xlarge"
+  instance_type          = "c5a.large"
   subnet_id              = resource.aws_subnet.neo.id
   vpc_security_group_ids = [resource.aws_security_group.neo.id]
   key_name               = "Ephemeral"

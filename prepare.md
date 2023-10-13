@@ -18,6 +18,8 @@ Update the following files based on the physical/dev ports that servers/FPGA con
 The development environment should install Rust toolchain that targets server machines.
 It should also install Terraform and AWS CLI.
 
+In order to plot, development environment should install `seaborn` pypi package and Jupyter notebook environment.
+
 > Note: It is assumed that there is access to the Intel P4 Studio SDE version 9.7.0 and the ICA tools helper scripts.
 
 The P4 Studio SDE is placed in switch's home directory, i.e., `$HOME/bf-sde-9.7.0`, and also the tools at `$HOME/tools`.
@@ -29,7 +31,7 @@ FPGA shell version shall be `xilinx_u50_gen3x16_xdma_201920_3`.
 
 ## Configure AWS account
 
-Make sure vCore limit is over 600 in the evaluating region.
+Make sure vCore limit is not less than 600 in the evaluating region.
 
 Create a key pair called "Ephemeral" in the evaluating region.
 
