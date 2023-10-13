@@ -1,5 +1,7 @@
 ## NeoBFT: Accelerating Byzantine Fault Tolerance Using Authenticated In-Network Ordering
 
+[![DOI](https://zenodo.org/badge/672471121.svg)](https://zenodo.org/doi/10.5281/zenodo.8317486)
+
 The evaluation of NeoBFT consists of three parts: 
 * AOM micro-benchmarks (section 6.1, figure 4-6)
 * four replica performance benchmarks (section 6.2, 6.4 and 6.5, figure 7, 9 and 10)
