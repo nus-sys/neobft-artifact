@@ -22,6 +22,7 @@ use rand::{rngs::StdRng, SeedableRng};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+#[derive(Debug)]
 enum AppState {
     Idle, // TODO exit on timeout
     Panicked,
@@ -68,6 +69,7 @@ async fn set_task(State(state): State<Arc<Mutex<AppState>>>, Json(task): Json<Ta
                 duration: config.duration,
                 workload,
             };
+            println!("{benchmark_config:?}");
             let state = state.clone();
             tokio::task::spawn_blocking(move || {
                 let latencies = match &*task.mode {
@@ -199,7 +201,10 @@ async fn poll_benchmark(State(state): State<Arc<Mutex<AppState>>>) -> Json<Optio
     match &*state {
         AppState::BenchmarkClientRunning | AppState::Panicked => Json(None),
         &AppState::BenchmarkClientFinish { stats } => Json(Some(stats)),
-        _ => unimplemented!(),
+        _ => {
+            drop(state);
+            unimplemented!()
+        }
     }
 }
 
@@ -228,7 +233,11 @@ fn main() {
     std::panic::set_hook({
         let state = state.clone();
         Box::new(move |info| {
-            *state.lock().unwrap() = AppState::Panicked;
+            if let Ok(mut state) = state.try_lock() {
+                *state = AppState::Panicked
+            } else {
+                println!("fail to panicking app state")
+            }
             hook(info)
         })
     });

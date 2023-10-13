@@ -1,4 +1,11 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicBool, Ordering::SeqCst},
+        Arc,
+    },
+    time::Duration,
+};
 
 use control_messages::{App, BenchmarkClient, BenchmarkStats, Replica, Role, Task};
 use reqwest::Client;
@@ -8,8 +15,8 @@ use tokio_util::sync::CancellationToken;
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     run(
-        1, //
-        1,
+        5, //
+        20,
         1,
         "unreplicated",
         App::Null,
@@ -252,6 +259,7 @@ async fn run(
         replica_hosts = output.replica_hosts
     }
 
+    assert!(client_hosts.len() >= num_client_host);
     let client_addrs = Vec::from_iter(client_addrs.take(num_group * num_client * num_client_host));
     let id = format!(
         "{mode},{},{drop_rate},{},{num_faulty}",
@@ -290,6 +298,7 @@ async fn run(
     });
 
     let http_client = Arc::new(Client::new());
+    let panic = Arc::new(AtomicBool::new(false));
     println!("* start replicas");
     let mut sessions = Vec::from_iter(
         replica_hosts
@@ -307,6 +316,7 @@ async fn run(
                     task(Role::Replica(Replica { index: index as _ })),
                     http_client.clone(),
                     cancel.clone(),
+                    panic.clone(),
                 ))
             }),
     );
@@ -325,11 +335,15 @@ async fn run(
             task(Role::BenchmarkClient(benchmark)),
             http_client.clone(),
             cancel.clone(),
+            panic.clone(),
         )));
         benchmark.offset += num_group * num_client;
     }
 
     for (index, client_host) in client_hosts.into_iter().enumerate().take(num_client_host) {
+        if index == 0 {
+            sleep(Duration::from_secs(1)).await
+        }
         loop {
             let response = http_client
                 .get(format!("http://{client_host}:9999/benchmark"))
@@ -360,6 +374,7 @@ async fn run(
     for session in sessions {
         session.await.unwrap()
     }
+    assert!(!panic.load(SeqCst))
 }
 
 async fn host_session(
@@ -367,8 +382,10 @@ async fn host_session(
     task: Task,
     client: Arc<Client>,
     cancel: CancellationToken,
+    panic: Arc<AtomicBool>,
 ) {
     let host = host.into();
+    // println!("{host}");
     let endpoint = format!("http://{host}:9999");
     let response = client
         .post(format!("{endpoint}/task"))
@@ -377,10 +394,10 @@ async fn host_session(
         .await
         .unwrap();
     assert!(response.status().is_success());
-    let reset = loop {
+    loop {
         select! {
             _ = sleep(Duration::from_secs(1)) => {}
-            _ = cancel.cancelled() => break true,
+            _ = cancel.cancelled() => break,
         }
         let response = client
             .get(format!("{endpoint}/panic"))
@@ -390,18 +407,17 @@ async fn host_session(
         assert!(response.status().is_success());
         if response.json::<bool>().await.unwrap() {
             println!("! {host} panic");
+            panic.store(true, SeqCst);
             cancel.cancel();
-            break false;
+            break;
         }
-    };
-    if reset {
+    }
+    if !panic.load(SeqCst) {
         let response = client
             .post(format!("{endpoint}/reset"))
             .send()
             .await
             .unwrap();
-        assert!(response.status().is_success());
-    } else {
-        panic!()
+        assert!(response.status().is_success())
     }
 }
