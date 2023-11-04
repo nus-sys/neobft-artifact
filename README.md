@@ -150,7 +150,7 @@ dev:~/neobft-artifact$ cargo -q run -p control -- hmac
 The results will be saved to `saved-hmac.csv`.
 The complete run takes minutes.
 If the evaluating is crashed or killed manually, it will resume in the next run.
-Just make sure to reload because running it again.
+Just make sure to reload before running it again.
 
 After running, in the first terminal enter `ctrl-\` to stop switchd.
 
